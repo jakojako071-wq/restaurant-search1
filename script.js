@@ -162,6 +162,16 @@ function getRestaurantRow(restaurant, images = getRestaurantImages(restaurant)) 
   };
 }
 
+function getOneMonthAgoIsoString() {
+  const cutoff = new Date();
+  const originalDay = cutoff.getDate();
+  cutoff.setDate(1);
+  cutoff.setMonth(cutoff.getMonth() - 1);
+  const lastDayOfMonth = new Date(cutoff.getFullYear(), cutoff.getMonth() + 1, 0).getDate();
+  cutoff.setDate(Math.min(originalDay, lastDayOfMonth));
+  return cutoff.toISOString();
+}
+
 function normalizeRestaurantRow(row) {
   return normalizeRestaurantRecord({
     id: row.id,
@@ -188,7 +198,7 @@ async function loadRestaurants() {
   setCloudStatus('共有データを読み込んでいます…');
   const [{ data: restaurantRows, error: restaurantError }, { data: reviewRows, error: reviewError }] = await Promise.all([
     supabaseClient.from('restaurants').select('*').order('created_at', { ascending: false }),
-    supabaseClient.from('reviews').select('*').order('created_at', { ascending: false })
+    supabaseClient.from('reviews').select('*').gte('created_at', getOneMonthAgoIsoString()).order('created_at', { ascending: false })
   ]);
   if (restaurantError) throw restaurantError;
   if (reviewError) throw reviewError;
@@ -1496,7 +1506,7 @@ async function createNewStore() {
   }
   if (storeSaveInProgress) return;
   if (!authUser) {
-    alert('店舗を登録するには担当者アカウントでログインしてください。フォームの入力内容は保持されます。');
+    alert('店舗を登録するには担当者アカウントが必要です。既存アカウントならログインし、初めての場合は「店舗担当者アカウントを作成」を選んでください。フォームの入力内容は保持されます。');
     openLoginModal();
     return;
   }
