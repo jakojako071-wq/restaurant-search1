@@ -44,22 +44,39 @@
     <section class="search-section">
         <h1>今、何を食べたい？</h1>
 
+        <label class="form-label" for="searchInput">店名・住所で探す</label>
+        <label for="categoryFilter" class="form-label">料理の種類を選ぶ</label>
+        <select id="categoryFilter" class="large-select">
+            <option value="">すべての種類</option>
+            <option value="和食">和食</option>
+            <option value="寿司">寿司</option>
+            <option value="ラーメン">ラーメン</option>
+            <option value="中華">中華</option>
+            <option value="焼肉">焼肉</option>
+            <option value="洋食">洋食</option>
+            <option value="イタリアン">イタリアン</option>
+            <option value="カフェ">カフェ</option>
+            <option value="居酒屋">居酒屋</option>
+            <option value="その他">その他</option>
+        </select>
         <div class="search-box">
             <span>🔎</span>
-            <input type="text" id="searchInput" placeholder="#家系 #個室 #深夜営業 などで検索..." oninput="searchRestaurants()">
+            <input type="search" id="searchInput" placeholder="例：ラーメン、渋谷" oninput="searchRestaurants()">
         </div>
-        <p class="search-hint">※キーワードや#タグに関連するお店から順番に表示されます</p>
+        <p class="search-hint">営業中は青、営業時間外・臨時休業中は赤で表示します。営業中のお店が上に並びます。</p>
     </section>
 
     <section class="map-section">
         <div id="map"></div>
+        <p class="map-legend">地図の料理アイコンを選ぶと、店舗情報が強調表示されます。</p>
     </section>
 
     <section class="restaurant-section">
         <div class="section-title">
-            <h2>🟢 営業中のお店</h2>
+            <h2>お店の営業状況</h2>
             <span id="restaurantCount"></span>
         </div>
+        <p class="business-hours-hint">営業中のお店が上、営業時間外・臨時休業中のお店が下に表示されます。</p>
         <div id="restaurantList"></div>
     </section>
 </main>
@@ -84,6 +101,7 @@
         </div>
 
         <input id="importRestaurantFile" type="file" accept=".txt,.json,text/plain" hidden>
+        <section id="storeManagerPanel" class="store-manager-panel" hidden></section>
         <div id="adminRestaurantList" class="admin-list"></div>
     </div>
 </div>
@@ -181,9 +199,11 @@
         <button class="close-btn" onclick="closeLoginModal()">×</button>
         <h2>🔑 ログイン</h2>
         <div class="login-form">
-            <input type="text" id="loginId" placeholder="ログインID">
-            <input type="password" id="loginPw" placeholder="パスワード">
-            <button class="submit-btn" onclick="login()">ログイン</button>
+            <label for="loginId">店舗ID または 管理者ID</label>
+            <input type="text" id="loginId" autocomplete="username" placeholder="発行されたID">
+            <label for="loginPw">パスワード</label>
+            <input type="password" id="loginPw" autocomplete="current-password" placeholder="パスワード">
+            <button type="button" class="submit-btn" onclick="login()">ログイン</button>
         </div>
         <p style="font-size: 12px; color: #888; margin-top: 15px;">
         </p>
@@ -196,44 +216,95 @@
     <div class="modal-content" style="max-width: 600px;">
         <button class="close-btn" onclick="closeAddStoreModal()">×</button>
         <h2>➕ 新規店舗の追加</h2>
-        <p style="font-size: 12px; color: #2563eb; margin-bottom: 8px;">
-            💡 以下の地図をクリックするか、住所・現在地から位置を設定できます。
-        </p>
-
-        <!-- モーダル用マップ -->
-        <div id="modalMap" style="width: 100%; height: 200px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #ccc;"></div>
+        <p class="registration-intro">画面の案内にそって、上から順番に入力してください。<span>※「必須」と書かれた項目は入力が必要です。</span></p>
 
         <div class="add-store-form">
-            <input type="text" id="newStoreName" placeholder="店舗名（例: 神田ラーメン）">
-            
-            <input type="text" id="newStoreTags" placeholder="タグ（カンマ区切り例: #ラーメン, #家系, #深夜営業）">
+            <fieldset class="registration-step">
+                <legend><span class="step-number">1</span> お店の基本情報</legend>
+                <label for="newStoreName">店舗名 <span class="required-label">必須</span></label>
+                <input type="text" id="newStoreName" autocomplete="organization" placeholder="例：神田ラーメン" required>
 
-            <div class="address-input-row">
-                <input type="text" id="newStoreAddress" placeholder="住所（例: 東京都千代田区神田1-1）" style="flex: 1;">
-                <button type="button" class="geo-btn" onclick="getLatLngFromAddress()">📍 住所から取得</button>
-                <button type="button" class="geo-btn current-location-btn" onclick="getCurrentLocationForNewStore()">📍 現在地から取得</button>
-            </div>
+                <label for="newStoreTags">料理の種類 <span class="required-label">必須</span></label>
+                <select id="newStoreTags" required>
+                    <option value="">下の一覧から選んでください</option>
+                    <option value="和食">和食</option>
+                    <option value="寿司">寿司</option>
+                    <option value="ラーメン">ラーメン</option>
+                    <option value="中華">中華</option>
+                    <option value="焼肉">焼肉</option>
+                    <option value="洋食">洋食</option>
+                    <option value="イタリアン">イタリアン</option>
+                    <option value="カフェ">カフェ</option>
+                    <option value="居酒屋">居酒屋</option>
+                    <option value="その他">その他</option>
+                </select>
+            </fieldset>
 
-            <div style="display: flex; gap: 8px;">
-                <input type="number" step="0.0001" id="newStoreLat" placeholder="緯度">
-                <input type="number" step="0.0001" id="newStoreLng" placeholder="経度">
-            </div>
+            <fieldset class="registration-step">
+                <legend><span class="step-number">2</span> お店の場所</legend>
+                <label for="newStoreAddress">住所 <span class="required-label">必須</span></label>
+                <input type="text" id="newStoreAddress" autocomplete="street-address" placeholder="例：東京都千代田区..." required>
+                <div class="registration-choice-row">
+                    <button type="button" class="geo-btn" onclick="getLatLngFromAddress()">入力した住所を地図で探す</button>
+                    <button type="button" class="geo-btn current-location-btn" onclick="getCurrentLocationForNewStore()">現在地から設定</button>
+                </div>
+                <p class="field-help">地図を押すと、その場所の住所も自動で入力されます。</p>
+                <div id="modalMap" class="registration-map"></div>
+                <p id="mapAddressStatus" class="map-address-status" role="status" aria-live="polite"></p>
+                <details class="coordinate-details">
+                    <summary>位置情報を数字で入力する（通常は不要）</summary>
+                    <div class="coordinate-inputs">
+                        <label for="newStoreLat">緯度</label>
+                        <input type="number" step="0.0001" id="newStoreLat" inputmode="decimal" placeholder="地図から自動入力">
+                        <label for="newStoreLng">経度</label>
+                        <input type="number" step="0.0001" id="newStoreLng" inputmode="decimal" placeholder="地図から自動入力">
+                    </div>
+                </details>
+            </fieldset>
 
-            <input type="text" id="newStoreDistance" placeholder="徒歩（例: 徒歩3分）">
-            <textarea id="newStoreDesc" placeholder="店舗の説明"></textarea>
+            <fieldset class="registration-step">
+                <legend><span class="step-number">3</span> 営業時間と予算</legend>
+                <fieldset class="business-hours-fields">
+                    <legend>毎日の営業時間 <span class="required-label">必須</span></legend>
+                    <label for="newStoreOpeningTime">開店時刻</label>
+                    <input type="time" id="newStoreOpeningTime" required>
+                    <label for="newStoreClosingTime">閉店時刻</label>
+                    <input type="time" id="newStoreClosingTime" required>
+                    <small>時刻を選ぶと一覧に表示されます。閉店が開店より早い場合は翌日閉店です。</small>
+                </fieldset>
 
-            <div class="image-upload-block">
-                <label for="newStoreImagesInput">店舗画像（最大10枚）</label>
-                <input type="file" id="newStoreImagesInput" accept="image/*" multiple>
-                <div id="newStoreImagePreview" class="store-image-preview"></div>
-            </div>
+                <label for="newStoreDistance">予算の目安（選択）</label>
+                <select id="newStoreDistance">
+                    <option value="">選択してください</option>
+                    <option value="〜1,000円">〜1,000円</option>
+                    <option value="1,000〜2,000円">1,000〜2,000円</option>
+                    <option value="2,000〜3,000円">2,000〜3,000円</option>
+                    <option value="3,000〜5,000円">3,000〜5,000円</option>
+                    <option value="5,000円〜">5,000円〜</option>
+                </select>
+            </fieldset>
 
-            <hr class="modal-divider">
-            <h3>🔐 店舗用ログイン情報の発行</h3>
-            <input type="text" id="newStoreLoginId" placeholder="店舗用ID（例: store1）">
-            <input type="password" id="newStorePassword" placeholder="店舗用パスワード">
+            <fieldset class="registration-step">
+                <legend><span class="step-number">4</span> 写真と紹介（任意）</legend>
+                <label for="newStoreDesc">お店の説明</label>
+                <textarea id="newStoreDesc" placeholder="お店の特徴やおすすめなど"></textarea>
+                <div class="image-upload-block">
+                    <label for="newStoreImagesInput">店舗の写真（任意・最大10枚）</label>
+                    <input type="file" id="newStoreImagesInput" accept="image/*" multiple>
+                    <div id="newStoreImagePreview" class="store-image-preview"></div>
+                </div>
+            </fieldset>
 
-            <button class="submit-btn" onclick="createNewStore()">店舗を登録する</button>
+            <fieldset class="registration-step store-account-fields">
+                <legend><span class="step-number">5</span> 担当者のログイン情報</legend>
+                <p class="field-help">担当者はこのIDとパスワードでログインし、緊急時に臨時休業へ切り替えられます。</p>
+                <label for="newStoreLoginId">担当者用ID <span class="required-label">必須</span></label>
+                <input type="text" id="newStoreLoginId" autocomplete="off" placeholder="例：kanda-shop" required>
+                <label for="newStorePassword">担当者用パスワード <span class="required-label">必須・6文字以上</span></label>
+                <input type="password" id="newStorePassword" autocomplete="new-password" minlength="6" placeholder="6文字以上" required>
+            </fieldset>
+
+            <button type="button" id="createNewStoreBtn" class="submit-btn registration-submit" onclick="createNewStore()">内容を確認して店舗を登録</button>
         </div>
     </div>
 </div>

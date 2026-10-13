@@ -66,6 +66,14 @@ body {
     box-shadow: 0 2px 6px rgba(0,0,0,0.1);
 }
 
+.mode-switch button,
+.location-btn,
+.restaurant-actions button,
+.submit-btn,
+.geo-btn {
+    min-height: 48px;
+}
+
 .location-btn {
     border: none;
     background: #f1f3f5;
@@ -106,6 +114,13 @@ main {
 .search-section h1 {
     margin-top: 0;
     font-size: 28px;
+}
+
+.form-label {
+    display: block;
+    margin: 0 0 8px;
+    font-size: 17px;
+    font-weight: 700;
 }
 
 .search-box {
@@ -154,6 +169,41 @@ main {
     z-index: 1;
 }
 
+.map-legend {
+    margin: 8px 4px 0;
+    color: #475569;
+    font-size: 14px;
+}
+
+.restaurant-map-icon {
+    display: grid;
+    place-items: center;
+    border: 0;
+    background: transparent;
+}
+
+.restaurant-map-icon span {
+    display: grid;
+    width: 38px;
+    height: 38px;
+    place-items: center;
+    border: 2px solid #0f766e;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+    font-size: 22px;
+    line-height: 1;
+}
+
+.restaurant-map-icon-selected span {
+    width: 48px;
+    height: 48px;
+    border: 4px solid #f59e0b;
+    background: #fef3c7;
+    box-shadow: 0 0 0 4px #fff, 0 4px 12px rgba(0, 0, 0, 0.5);
+    font-size: 28px;
+}
+
 .custom-map-pin {
     background: transparent;
     border: none;
@@ -171,6 +221,68 @@ main {
     box-shadow: 0 3px 8px rgba(0,0,0,0.3);
     cursor: pointer;
     border: 2px solid #333;
+}
+
+.store-location-icon {
+    background: transparent;
+    border: none;
+}
+
+.store-location-icon svg {
+    display: block;
+    filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.4));
+}
+
+.current-location-icon {
+    background: transparent;
+    border: none;
+}
+
+.current-location-icon svg {
+    display: block;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));
+}
+
+.map-address-status {
+    min-height: 1.4em;
+    margin: -8px 0 12px;
+    color: #475569;
+    font-size: 13px;
+}
+
+.business-hours {
+    margin: 8px 0;
+    color: #475569;
+    font-size: 14px;
+}
+
+.business-hours-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 12px;
+    margin: 0;
+    padding: 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 10px;
+}
+
+.business-hours-fields legend {
+    padding: 0 5px;
+    font-weight: 600;
+}
+
+.business-hours-fields label {
+    font-size: 14px;
+}
+
+.business-hours-fields input {
+    width: 100%;
+}
+
+.business-hours-fields small {
+    grid-column: 1 / -1;
+    color: #6b7280;
+    line-height: 1.5;
 }
 
 
@@ -200,8 +312,138 @@ main {
     box-shadow: 0 2px 8px #00000008;
 }
 
+.restaurant-card-open {
+    background: #eaf4ff;
+    border: 2px solid #60a5fa;
+}
+
+.restaurant-card-closed {
+    background: #fff0f0;
+    border: 2px solid #f87171;
+}
+
+.restaurant-card-selected {
+    outline: 4px solid #f59e0b;
+    outline-offset: 2px;
+    box-shadow: 0 0 0 3px #fff, 0 6px 18px rgba(180, 83, 9, 0.3);
+}
+
+.business-status {
+    display: inline-flex;
+    align-items: center;
+    min-height: 36px;
+    margin: 4px 0 8px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 16px;
+}
+
+.restaurant-card-open .business-status {
+    background: #bfdbfe;
+    color: #1e40af;
+}
+
+.restaurant-card-closed .business-status {
+    background: #fecaca;
+    color: #991b1b;
+}
+
+.restaurant-card > img {
+    display: block;
+    width: 100%;
+    max-height: 220px;
+    object-fit: cover;
+    border-radius: 10px;
+}
+
+.restaurant-card-body {
+    padding-top: 12px;
+}
+
+.restaurant-topline,
+.restaurant-meta,
+.restaurant-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.restaurant-topline,
+.restaurant-meta {
+    justify-content: space-between;
+}
+
+.restaurant-actions {
+    flex-wrap: wrap;
+    margin-top: 12px;
+}
+
+.restaurant-actions button {
+    flex: 1 1 180px;
+    min-height: 42px;
+    border: 0;
+    border-radius: 10px;
+    padding: 10px 12px;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.restaurant-actions .primary-btn {
+    background: #0f766e;
+    color: white;
+}
+
+.restaurant-actions .secondary-btn {
+    background: #e8f1f0;
+    color: #115e59;
+}
+
+.route-guide {
+    margin: 18px 0;
+    padding: 16px;
+    border-radius: 12px;
+    background: #f1f5f9;
+}
+
+.route-guide h3 {
+    margin: 0 0 6px;
+}
+
+.route-guide p {
+    margin: 0 0 12px;
+    color: #475569;
+    font-size: 14px;
+}
+
+.route-guide-btn {
+    width: 100%;
+    min-height: 44px;
+    border: 0;
+    border-radius: 10px;
+    padding: 10px 14px;
+    background: #2563eb;
+    color: white;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+
 .restaurant-card:hover {
     transform: translateY(-2px);
+}
+
+.large-select {
+    width: 100%;
+    min-height: 54px;
+    margin-bottom: 14px;
+    padding: 12px 14px;
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    background: white;
+    color: #222;
+    font: inherit;
+    font-size: 17px;
 }
 
 .restaurant-name {
@@ -242,6 +484,76 @@ main {
     max-width: 800px;
     margin: 20px auto;
     padding: 0 20px;
+}
+
+.store-manager-panel {
+    margin: 20px 0;
+    padding: 24px;
+    border: 2px solid #fed7aa;
+    border-radius: 18px;
+    background: #fff7ed;
+}
+
+.store-manager-panel[hidden] {
+    display: none;
+}
+
+.store-account-fields[hidden],
+.image-upload-block[hidden] {
+    display: none;
+}
+
+.store-manager-panel h2 {
+    margin: 0 0 10px;
+    font-size: 24px;
+}
+
+.store-manager-panel p {
+    font-size: 18px;
+    line-height: 1.6;
+}
+
+.emergency-close-btn,
+.resume-business-btn,
+.edit-own-store-btn {
+    width: 100%;
+    min-height: 68px;
+    border: 0;
+    border-radius: 14px;
+    padding: 16px;
+    color: #fff;
+    font: inherit;
+    font-size: 22px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.edit-own-store-btn {
+    margin: 12px 0;
+    border: 2px solid #0f766e;
+    background: #fff;
+    color: #115e59;
+    font-size: 19px;
+}
+
+.edit-own-store-btn:hover {
+    background: #f0fdfa;
+}
+
+.emergency-close-btn {
+    background: #b91c1c;
+}
+
+.emergency-close-btn:hover {
+    background: #991b1b;
+}
+
+.resume-business-btn {
+    background: #047857;
+}
+
+.resume-business-btn:hover {
+    background: #065f46;
 }
 
 .admin-subtitle {
@@ -403,8 +715,9 @@ main {
     .mode-switch button,
     .location-btn {
         width: 100%;
-        padding: 10px 8px;
-        font-size: 11px;
+        min-height: 52px;
+        padding: 10px 12px;
+        font-size: 14px;
         border-radius: 12px;
     }
 
@@ -459,6 +772,25 @@ main {
         padding: 0 12px;
     }
 
+    .store-manager-panel {
+        padding: 18px;
+    }
+
+    .store-manager-panel h2 {
+        font-size: 21px;
+    }
+
+    .store-manager-panel p {
+        font-size: 16px;
+    }
+
+    .emergency-close-btn,
+    .resume-business-btn,
+    .edit-own-store-btn {
+        min-height: 72px;
+        font-size: 20px;
+    }
+
     .admin-header {
         flex-direction: column;
         align-items: stretch;
@@ -507,6 +839,30 @@ main {
 
     .login-form, .add-store-form {
         gap: 10px;
+    }
+
+    .registration-intro {
+        font-size: 16px;
+    }
+
+    .registration-step {
+        padding: 14px;
+    }
+
+    .registration-step > legend {
+        font-size: 17px;
+    }
+
+    .registration-choice-row {
+        grid-template-columns: 1fr;
+    }
+
+    .registration-choice-row .geo-btn {
+        min-height: 54px;
+    }
+
+    .registration-map {
+        height: 220px;
     }
 }
 
@@ -683,14 +1039,143 @@ main {
     margin-top: 15px;
 }
 
+.registration-intro {
+    margin: 8px 0 18px;
+    padding: 14px 16px;
+    border-radius: 12px;
+    background: #eff6ff;
+    color: #1e3a8a;
+    font-size: 17px;
+    line-height: 1.6;
+}
+
+.registration-intro span {
+    display: block;
+    margin-top: 4px;
+    font-size: 14px;
+}
+
+.registration-step {
+    display: grid;
+    gap: 10px;
+    margin: 0;
+    padding: 18px;
+    border: 1px solid #cbd5e1;
+    border-radius: 14px;
+    background: #fff;
+}
+
+.registration-step > legend {
+    padding: 0 8px;
+    color: #0f172a;
+    font-size: 19px;
+    font-weight: 800;
+}
+
+.step-number {
+    display: inline-grid;
+    width: 32px;
+    height: 32px;
+    margin-right: 6px;
+    place-items: center;
+    border-radius: 50%;
+    background: #0f766e;
+    color: #fff;
+    font-size: 17px;
+}
+
+.required-label {
+    display: inline-block;
+    margin-left: 4px;
+    padding: 2px 7px;
+    border-radius: 6px;
+    background: #fee2e2;
+    color: #991b1b;
+    font-size: 12px;
+    vertical-align: middle;
+}
+
+.field-help {
+    margin: 0;
+    color: #475569;
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+.registration-choice-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.registration-choice-row .geo-btn {
+    min-height: 58px;
+    white-space: normal;
+    line-height: 1.4;
+}
+
+.registration-map {
+    width: 100%;
+    height: 250px;
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+}
+
+.coordinate-details {
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    padding: 10px 12px;
+}
+
+.coordinate-details summary {
+    min-height: 36px;
+    padding: 6px 0;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.coordinate-inputs {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 8px;
+    padding-top: 8px;
+}
+
+.business-hours-fields {
+    width: 100%;
+    background: #f8fafc;
+}
+
+.registration-submit {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    min-height: 64px;
+    box-shadow: 0 -4px 14px rgba(255, 255, 255, 0.9);
+    font-size: 19px;
+}
+
+.login-form label,
+.add-store-form > label {
+    font-size: 16px;
+    font-weight: 700;
+}
+
 .login-form input,
 .add-store-form input,
 .add-store-form select,
 .add-store-form textarea {
-    padding: 10px;
+    min-height: 52px;
+    padding: 12px 14px;
     border: 1px solid #ccc;
     border-radius: 8px;
-    font-size: 14px;
+    font-size: 17px;
+}
+
+.add-store-form textarea {
+    min-height: 100px;
     font-family: inherit;
 }
 
@@ -720,6 +1205,14 @@ main {
     min-height: 52px;
 }
 
+.image-count {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: #4b5563;
+    font-size: 13px;
+    font-weight: 600;
+}
+
 .image-preview-item {
     position: relative;
     border-radius: 10px;
@@ -735,6 +1228,21 @@ main {
     height: 100%;
     object-fit: cover;
     display: block;
+}
+
+.remove-store-image-btn {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 30px;
+    height: 30px;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(17, 24, 39, 0.82);
+    color: #fff;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
 }
 
 .image-preview-empty {
@@ -765,9 +1273,11 @@ main {
     border: none;
     background: #10b981;
     color: white;
-    padding: 12px;
+    min-height: 54px;
+    padding: 14px;
     border-radius: 8px;
     font-weight: bold;
+    font-size: 17px;
     font-size: 15px;
     cursor: pointer;
     margin-top: 10px;
@@ -850,6 +1360,11 @@ main {
     margin-bottom: 0;
 }
 
+.business-hours-hint {
+    color: #475569;
+    line-height: 1.5;
+}
+
 /* #タグのデザイン */
 .card-tags {
     display: flex;
@@ -884,6 +1399,18 @@ main {
     border-bottom: none;
 }
 
+.review-section {
+    margin-top: 22px;
+}
+
+.review-section h3 {
+    margin-bottom: 8px;
+}
+
+.review-empty {
+    color: #6b7280;
+}
+
 .review-header {
     display: flex;
     justify-content: space-between;
@@ -893,6 +1420,45 @@ main {
 .review-comment {
     margin: 8px 0 0;
     white-space: pre-wrap;
+}
+
+.review-form {
+    display: grid;
+    gap: 8px;
+    margin-top: 18px;
+    padding: 16px;
+    border-radius: 12px;
+    background: #f8fafc;
+}
+
+.review-form h4 {
+    margin: 0 0 4px;
+}
+
+.review-form label {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.review-form input,
+.review-form select,
+.review-form textarea {
+    width: 100%;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: #fff;
+    color: #222;
+    font: inherit;
+}
+
+.review-form textarea {
+    min-height: 110px;
+    resize: vertical;
+}
+
+.review-form .submit-btn {
+    margin-top: 4px;
 }
 
 .delete-review-btn {
