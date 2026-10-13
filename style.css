@@ -537,6 +537,12 @@ main {
     line-height: 1.6;
 }
 
+.store-manager-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
 .emergency-close-btn,
 .resume-business-btn,
 .edit-own-store-btn {
@@ -553,7 +559,8 @@ main {
 }
 
 .edit-own-store-btn {
-    margin: 12px 0;
+    width: 100%;
+    margin: 0;
     border: 2px solid #0f766e;
     background: #fff;
     color: #115e59;
@@ -666,6 +673,28 @@ main {
 
 .modal.show {
     display: flex;
+}
+
+.modal.store-editor-page {
+    align-items: stretch;
+    justify-content: center;
+    padding: 0;
+    background: #f5f6f8;
+    z-index: 2500;
+}
+
+.modal.store-editor-page.show {
+    display: block;
+    overflow-y: auto;
+}
+
+.store-editor-page .modal-content {
+    max-width: 800px;
+    min-height: 100vh;
+    max-height: none;
+    margin: 0 auto;
+    padding: 32px 24px;
+    border-radius: 0;
 }
 
 .modal-content {
@@ -794,6 +823,14 @@ main {
 
     .admin-container {
         padding: 0 12px;
+    }
+
+    .store-manager-actions {
+        grid-template-columns: 1fr;
+    }
+
+    .store-editor-page .modal-content {
+        padding: 28px 16px;
     }
 
     .store-manager-panel {

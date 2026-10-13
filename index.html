@@ -98,7 +98,7 @@
                 <p class="admin-subtitle" id="loggedInStoreInfo">ログイン中</p>
             </div>
             <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                <button id="storeQrBtn" class="qr-button" style="display: none;" onclick="openStoreQrModal()">📱 追加用QR</button>
+                <button id="storeQrBtn" class="qr-button" style="display: none;" onclick="openStoreQrModal()">📱 店舗追加QR</button>
                 <button id="siteAdminAddBtn" class="add-store-btn" style="display: none;" onclick="openAddStoreModal()">➕ 新規店舗を追加</button>
                 <button id="migrateLegacyDataBtn" class="add-store-btn" style="display: none;" onclick="migrateLegacyRestaurants()">📤 この端末のデータを共有</button>
                 <button id="exportDataBtn" class="add-store-btn" style="display: none;" onclick="exportRestaurantsAsText()">📤 テキスト保存</button>
@@ -148,7 +148,7 @@
     <div class="modal-content qr-modal-content">
         <button class="close-btn" onclick="closeStoreQrModal()">×</button>
         <h2>📱 新規店舗追加用QRコード</h2>
-        <p class="qr-description">スマートフォンで読み取ると、管理者ログイン後に新規店舗の登録フォームが開きます。</p>
+        <p class="qr-description">読み取るとログインまたは担当者アカウント作成へ進み、認証後に店舗登録フォームが開きます。</p>
         <div id="publicUrlSetup" class="public-url-setup">
             <label for="publicAppUrlInput">スマホで開ける公開URL</label>
             <div class="qr-url-row">
@@ -165,18 +165,18 @@
     </div>
 </div>
 
-<!-- 営業開始用QRコード -->
-<div id="storeStartQrModal" class="modal">
+<!-- 店舗別 臨時休業QRコード -->
+<div id="emergencyQrModal" class="modal">
     <div class="modal-content qr-modal-content">
-        <button class="close-btn" onclick="closeStoreStartQrModal()">×</button>
-        <h2>🟢 営業開始用QRコード</h2>
-        <p id="storeStartQrDescription" class="qr-description"></p>
-        <div id="storeStartQrCode" class="qr-code"></div>
+        <button class="close-btn" onclick="closeEmergencyQrModal()">×</button>
+        <h2 id="emergencyQrTitle">臨時休業QR</h2>
+        <p class="qr-description">読み取ると、この店舗を臨時休業に切り替えます。QRは再発行すると古いものが無効になります。</p>
+        <div id="emergencyQrCode" class="qr-code"></div>
         <div class="qr-url-row">
-            <input id="storeStartQrUrl" type="text" readonly aria-label="営業開始用QRコードのURL">
-            <button type="button" class="qr-copy-btn" onclick="copyStoreStartQrUrl()">URLをコピー</button>
+            <input id="emergencyQrUrl" type="text" readonly aria-label="臨時休業QRコードのURL">
+            <button type="button" class="qr-copy-btn" onclick="copyEmergencyQrUrl()">URLをコピー</button>
         </div>
-        <button type="button" class="submit-btn qr-download-btn" onclick="downloadStoreStartQrCode()">QR画像をダウンロード</button>
+        <button type="button" class="submit-btn qr-download-btn" onclick="downloadEmergencyQrCode()">QR画像をダウンロード</button>
     </div>
 </div>
 
@@ -188,18 +188,6 @@
         <div id="modalContent"></div>
     </div>
 </div>
-
-<!-- QR読み込み後の営業開始確認 -->
-<div id="startBusinessModal" class="modal">
-    <div class="modal-content start-business-content">
-        <button class="close-btn" onclick="closeStartBusinessModal()">×</button>
-        <p class="start-business-kicker">QRチェックイン</p>
-        <h2 id="startBusinessTitle">営業を開始しますか？</h2>
-        <p id="startBusinessDescription"></p>
-        <button type="button" class="start-business-button" onclick="confirmStartBusiness()">🟢 営業開始</button>
-    </div>
-</div>
-
 
 <!-- ログインモーダル -->
 <div id="loginModal" class="modal">

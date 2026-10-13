@@ -15,6 +15,8 @@ let storeFormMode = 'create';
 let storeFormImages = [];
 let storeImagesLoading = false;
 let storeSaveInProgress = false;
+let pendingStoreRegistration = false;
+let emergencyQrRequestHandled = false;
 let map;
 let markers = [];
 let currentUserLocation = null;
@@ -560,6 +562,7 @@ function renderAdminList() {
           </div>
           <div class="admin-actions">
             <button type="button" class="secondary-btn" data-action="admin-edit" data-id="${restaurant.id}">編集</button>
+            <button type="button" class="secondary-btn" data-action="admin-emergency-qr" data-id="${restaurant.id}">臨時休業QR</button>
             <button type="button" class="danger-btn" data-action="admin-delete" data-id="${restaurant.id}">削除</button>
           </div>
         </div>
@@ -592,11 +595,42 @@ function renderStoreManagerPanel() {
     <p>${restaurant.emergencyClosed
       ? '臨時休業中です。再開するまで「営業中のお店」には表示されません。'
       : `営業時間 ${escapeHtml(restaurant.openingTime)}〜${escapeHtml(restaurant.closingTime)} に営業中として表示されます。緊急時は下のボタンを押してください。`}</p>
-    <button type="button" class="edit-own-store-btn" data-action="edit-own-store">✏️ 自分のお店の情報を変更</button>
+    <div class="store-manager-actions">
+      <button type="button" class="edit-own-store-btn" data-action="edit-own-store">✏️ 店舗情報の編集ページ</button>
+      <button type="button" class="qr-button" data-action="emergency-qr" data-id="${escapeHtml(restaurant.id)}">📱 臨時休業QRを作成</button>
+    </div>
     <button type="button" class="${restaurant.emergencyClosed ? 'resume-business-btn' : 'emergency-close-btn'}" data-action="toggle-emergency-closure">
       ${restaurant.emergencyClosed ? '🟢 営業を再開する' : '🚨 緊急のため臨時休業にする'}
     </button>
   `;
+}
+
+function renderQrCode(containerId, url) {
+  const container = document.getElementById(containerId);
+  if (!container) return false;
+  container.innerHTML = '';
+  if (!window.QRCode) {
+    container.textContent = 'QRコードを読み込めませんでした。ページを再読み込みしてください。';
+    return false;
+  }
+  new QRCode(container, {
+    text: url,
+    width: 220,
+    height: 220,
+    colorDark: '#111827',
+    colorLight: '#ffffff',
+    correctLevel: QRCode.CorrectLevel.H
+  });
+  return true;
+}
+
+function getAppUrl(value = '') {
+  const base = value.trim() || `${window.location.origin}${window.location.pathname}`;
+  const url = new URL(base, window.location.href);
+  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('公開URLは http または https で入力してください。');
+  url.search = '';
+  url.hash = '';
+  return url;
 }
 
 async function toggleEmergencyClosure() {
@@ -987,34 +1021,93 @@ function closeStoreQrModal() {
 
 function generateStoreQrFromPublicUrl() {
   const input = document.getElementById('publicAppUrlInput');
-  const qrContainer = document.getElementById('storeQrCode');
   const qrUrl = document.getElementById('storeQrUrl');
+  try {
+    const url = getAppUrl(input?.value || '');
+    url.searchParams.set('action', 'register-store');
+    const qrText = url.toString();
+    if (qrUrl) qrUrl.value = qrText;
+    if (input) input.value = url.origin + url.pathname;
+    renderQrCode('storeQrCode', qrText);
+  } catch (error) {
+    alert(error.message || '公開URLを確認してください。');
+  }
+}
 
-  let url = input ? input.value.trim() : '';
-  if (!url) {
-    url = window.location.origin + window.location.pathname.replace(/index\.html$/i, '');
+async function openEmergencyClosureQr(restaurantId) {
+  const restaurant = restaurants.find((item) => item.id === restaurantId);
+  if (!restaurant || (!isSiteModerator && restaurant.ownerId !== authUser?.id)) {
+    alert('自分の店舗の臨時休業QRだけを作成できます。');
+    return;
+  }
+  if (!supabaseClient || !window.crypto?.subtle) {
+    alert('安全なQRコードを作成できません。HTTPSの公開URLから開いてください。');
+    return;
   }
 
-  if (!url) return;
+  const randomBytes = crypto.getRandomValues(new Uint8Array(32));
+  const token = Array.from(randomBytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  const hashBytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+  const tokenHash = Array.from(new Uint8Array(hashBytes), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  const { error } = await supabaseClient
+    .from('restaurant_emergency_qr_tokens')
+    .upsert({ restaurant_id: restaurant.id, token_hash: tokenHash, updated_at: new Date().toISOString() }, { onConflict: 'restaurant_id' });
+  if (error) {
+    handleCloudError(error);
+    alert('臨時休業QRを保存できませんでした。SupabaseのSQL設定を適用してください。');
+    return;
+  }
 
-  if (qrContainer) {
-    qrContainer.innerHTML = '';
-    if (window.QRCode) {
-      new QRCode(qrContainer, {
-        text: url,
-        width: 180,
-        height: 180,
-        colorDark: '#111827',
-        colorLight: '#ffffff',
-        correctLevel: QRCode.CorrectLevel.H
-      });
-    } else {
-      qrContainer.textContent = 'QRコード生成できません';
+  const url = getAppUrl();
+  url.hash = new URLSearchParams({ 'emergency-close': token }).toString();
+  const qrText = url.toString();
+  document.getElementById('emergencyQrTitle').textContent = `${restaurant.name} 臨時休業QR`;
+  document.getElementById('emergencyQrUrl').value = qrText;
+  renderQrCode('emergencyQrCode', qrText);
+  document.getElementById('emergencyQrModal')?.classList.add('show');
+}
+
+function closeEmergencyQrModal() {
+  document.getElementById('emergencyQrModal')?.classList.remove('show');
+}
+
+async function processEmergencyClosureQr() {
+  if (emergencyQrRequestHandled || !supabaseClient) return;
+  const hashParams = new URLSearchParams(window.location.hash.slice(1));
+  const token = hashParams.get('emergency-close');
+  if (!token) return;
+  emergencyQrRequestHandled = true;
+  history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+  setCloudStatus('臨時休業を登録しています…');
+  try {
+    const { data, error } = await supabaseClient.rpc('close_restaurant_with_qr', { p_token: token });
+    if (error) throw error;
+    if (!data) {
+      setCloudStatus('この臨時休業QRは無効か、再発行により使用できなくなっています。', true);
+      return;
     }
+    await loadRestaurants();
+    setCloudStatus('臨時休業に切り替えました。');
+  } catch (error) {
+    handleCloudError(error);
   }
+}
 
-  if (qrUrl) qrUrl.value = url;
-  if (input) input.value = url;
+function processPendingStoreRegistration() {
+  if (!pendingStoreRegistration) return;
+  if (!authUser) {
+    document.getElementById('loginModal')?.classList.add('show');
+    return;
+  }
+  pendingStoreRegistration = false;
+  localStorage.removeItem('pendingStoreRegistration');
+  if (!isSiteModerator && loggedInStoreId) {
+    switchView('admin');
+    alert('このアカウントには登録済みの店舗があります。店舗管理ページから情報を編集してください。');
+    return;
+  }
+  switchView('admin');
+  openAddStoreModal();
 }
 
 function copyStoreQrUrl() {
@@ -1052,6 +1145,32 @@ function downloadStoreQrCode() {
   link.click();
 }
 
+async function copyEmergencyQrUrl() {
+  const url = document.getElementById('emergencyQrUrl')?.value || '';
+  if (!url) return;
+  try {
+    await navigator.clipboard.writeText(url);
+  } catch {
+    const input = document.getElementById('emergencyQrUrl');
+    input.focus();
+    input.select();
+    document.execCommand('copy');
+  }
+  alert('臨時休業QRのURLをコピーしました。');
+}
+
+function downloadEmergencyQrCode() {
+  const canvas = document.querySelector('#emergencyQrCode canvas');
+  if (!canvas) {
+    alert('QRコードがまだ生成されていません。');
+    return;
+  }
+  const link = document.createElement('a');
+  link.href = canvas.toDataURL('image/png');
+  link.download = 'emergency-closure-qr.png';
+  link.click();
+}
+
 async function login() {
   if (!supabaseClient) {
     alert('共有データベースが設定されていません。READMEの設定手順を完了してください。');
@@ -1074,6 +1193,7 @@ async function login() {
     await refreshAuthState(data.session);
     switchView('admin');
     closeLoginModal();
+    processPendingStoreRegistration();
   } catch (loadError) {
     handleCloudError(loadError);
     alert('ログインしましたが、店舗データを読み込めませんでした。');
@@ -1106,6 +1226,7 @@ async function registerAccount() {
     await refreshAuthState(data.session);
     switchView('admin');
     closeLoginModal();
+    processPendingStoreRegistration();
   } catch (loadError) {
     handleCloudError(loadError);
     alert('アカウントを作成しましたが、店舗データを読み込めませんでした。');
@@ -1271,7 +1392,10 @@ function openAddStoreModal() {
 
 function closeAddStoreModal() {
   const modal = document.getElementById('addStoreModal');
-  if (modal) modal.classList.remove('show');
+  if (modal) {
+    modal.classList.remove('show', 'store-editor-page');
+    modal.querySelector('.modal-content')?.scrollTo(0, 0);
+  }
   storeFormMode = 'create';
 }
 
@@ -1580,6 +1704,7 @@ function editStore(restaurantId) {
 
   const modal = document.getElementById('addStoreModal');
   if (!modal) return;
+  modal.classList.add('store-editor-page');
 
   storeFormMode = 'edit';
   const modalTitle = modal.querySelector('h2');
@@ -1807,6 +1932,7 @@ function bindEvents() {
 
     if (button.dataset.action === 'toggle-emergency-closure') toggleEmergencyClosure();
     if (button.dataset.action === 'edit-own-store' && loggedInStoreId) editStore(loggedInStoreId);
+    if (button.dataset.action === 'emergency-qr' && button.dataset.id) openEmergencyClosureQr(button.dataset.id);
     if (button.dataset.action === 'create-own-store') openAddStoreModal();
   });
 
@@ -1816,11 +1942,19 @@ function bindEvents() {
 
     const { action, id } = button.dataset;
     if (action === 'admin-edit') editStore(id);
+    if (action === 'admin-emergency-qr') openEmergencyClosureQr(id);
     if (action === 'admin-delete') deleteStore(id);
   });
 }
 
 function initializeApp() {
+  const registrationRequested = new URLSearchParams(window.location.search).get('action') === 'register-store';
+  try {
+    pendingStoreRegistration = registrationRequested || localStorage.getItem('pendingStoreRegistration') === 'true';
+    if (registrationRequested) localStorage.setItem('pendingStoreRegistration', 'true');
+  } catch {
+    pendingStoreRegistration = registrationRequested;
+  }
   legacyRestaurants = (safeStorageLoad() || [])
     .filter((record) => record && typeof record === 'object')
     .map((record, index) => {
@@ -1861,6 +1995,8 @@ function initializeApp() {
       await loadRestaurants();
       await refreshAuthState(data.session);
       subscribeToCloudChanges();
+      await processEmergencyClosureQr();
+      processPendingStoreRegistration();
     })
     .catch((error) => {
       handleCloudError(error);
