@@ -318,11 +318,13 @@ async function refreshAuthState(session) {
 }
 
 function updateAuthenticatedControls() {
-  const moderatorOnlyIds = ['exportDataBtn', 'importDataBtn', 'clearDataBtn', 'storeQrBtn'];
+  const moderatorOnlyIds = ['exportDataBtn', 'importDataBtn', 'clearDataBtn'];
   moderatorOnlyIds.forEach((id) => {
     const button = document.getElementById(id);
     if (button) button.style.display = isSiteModerator ? 'inline-flex' : 'none';
   });
+  const storeQrButton = document.getElementById('storeQrBtn');
+  if (storeQrButton) storeQrButton.style.display = authUser ? 'inline-flex' : 'none';
   const addButton = document.getElementById('siteAdminAddBtn');
   if (addButton) addButton.style.display = isSiteModerator || (authUser && !loggedInStoreId) ? 'inline-flex' : 'none';
   const buttonLabel = document.getElementById('siteAdminAddBtn');
