@@ -9,7 +9,7 @@
     <meta name="apple-mobile-web-app-title" content="いま営業中">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="description" content="現在地から近い営業中の飲食店を探せるアプリ">
-    <meta name="robots" content="noindex, nofollow, noarchive">
+    <meta name="robots" content="index, follow">
     <meta name="format-detection" content="telephone=no">
     <link rel="icon" href="app-icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="app-icon.svg">
@@ -18,8 +18,10 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <link rel="stylesheet" href="style.css">
+    <script src="supabase-config.js"></script>
 </head>
 
 <body>
@@ -38,6 +40,11 @@
         <button class="location-btn" onclick="showLocation()">📍 現在地を表示</button>
     </div>
 </header>
+
+<p class="cloud-status" role="status" aria-live="polite">
+    <span id="cloudStatus">共有データベースに接続しています…</span>
+    <button type="button" id="retryCloudBtn">再接続</button>
+</p>
 
 <!-- 1. 利用者用画面 -->
 <main id="userPage" class="page-view active">
@@ -93,6 +100,7 @@
             <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                 <button id="storeQrBtn" class="qr-button" style="display: none;" onclick="openStoreQrModal()">📱 追加用QR</button>
                 <button id="siteAdminAddBtn" class="add-store-btn" style="display: none;" onclick="openAddStoreModal()">➕ 新規店舗を追加</button>
+                <button id="migrateLegacyDataBtn" class="add-store-btn" style="display: none;" onclick="migrateLegacyRestaurants()">📤 この端末のデータを共有</button>
                 <button id="exportDataBtn" class="add-store-btn" style="display: none;" onclick="exportRestaurantsAsText()">📤 テキスト保存</button>
                 <button id="importDataBtn" class="add-store-btn" style="display: none;" onclick="triggerImportRestaurantText()">📥 テキスト読込</button>
                 <button id="clearDataBtn" class="logout-btn" style="display: none; background-color: #ef4444;" onclick="clearAllData()">🗑️ 全データ初期化</button>
@@ -199,13 +207,15 @@
         <button class="close-btn" onclick="closeLoginModal()">×</button>
         <h2>🔑 ログイン</h2>
         <div class="login-form">
-            <label for="loginId">店舗ID または 管理者ID</label>
-            <input type="text" id="loginId" autocomplete="username" placeholder="発行されたID">
+            <label for="loginId">メールアドレス</label>
+            <input type="email" id="loginId" autocomplete="username" placeholder="name@example.com">
             <label for="loginPw">パスワード</label>
-            <input type="password" id="loginPw" autocomplete="current-password" placeholder="パスワード">
-            <button type="button" class="submit-btn" onclick="login()">ログイン</button>
+            <input type="password" id="loginPw" autocomplete="current-password" minlength="8" placeholder="8文字以上">
+            <button type="button" id="loginSubmit" class="submit-btn" onclick="login()">ログイン</button>
+            <button type="button" id="registerAccountBtn" class="secondary-btn" onclick="registerAccount()">店舗担当者アカウントを作成</button>
         </div>
         <p style="font-size: 12px; color: #888; margin-top: 15px;">
+            店舗担当者・サイト管理者共通のログインです。担当者はログイン後に自分のお店を登録できます。
         </p>
     </div>
 </div>
@@ -293,15 +303,6 @@
                     <input type="file" id="newStoreImagesInput" accept="image/*" multiple>
                     <div id="newStoreImagePreview" class="store-image-preview"></div>
                 </div>
-            </fieldset>
-
-            <fieldset class="registration-step store-account-fields">
-                <legend><span class="step-number">5</span> 担当者のログイン情報</legend>
-                <p class="field-help">担当者はこのIDとパスワードでログインし、緊急時に臨時休業へ切り替えられます。</p>
-                <label for="newStoreLoginId">担当者用ID <span class="required-label">必須</span></label>
-                <input type="text" id="newStoreLoginId" autocomplete="off" placeholder="例：kanda-shop" required>
-                <label for="newStorePassword">担当者用パスワード <span class="required-label">必須・6文字以上</span></label>
-                <input type="password" id="newStorePassword" autocomplete="new-password" minlength="6" placeholder="6文字以上" required>
             </fieldset>
 
             <button type="button" id="createNewStoreBtn" class="submit-btn registration-submit" onclick="createNewStore()">内容を確認して店舗を登録</button>

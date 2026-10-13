@@ -87,6 +87,30 @@ body {
     gap: 8px;
 }
 
+.cloud-status {
+    margin: 0;
+    padding: 9px 20px;
+    background: #ecfdf5;
+    color: #065f46;
+    font-size: 13px;
+    text-align: center;
+}
+
+.cloud-status button {
+    margin-left: 8px;
+    border: 1px solid currentColor;
+    border-radius: 6px;
+    padding: 4px 10px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+}
+
+.cloud-status-error {
+    background: #fef2f2;
+    color: #991b1b;
+}
+
 
 /* 画面切り替えの表示制御 */
 

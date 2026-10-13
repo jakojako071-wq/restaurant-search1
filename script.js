@@ -1,16 +1,20 @@
 const STORAGE_KEY = 'restaurantData';
-const ADMIN_PASSWORD = 'admin123';
 const LEGACY_PLACEHOLDER_IMAGE = 'https://images.unsplash.com/photo-1559339352-11d035aa65de?auto=format&fit=crop&w=800&q=80';
-const defaultRestaurants = [];
+const IMAGE_BUCKET = 'restaurant-images';
 
 let restaurants = [];
+let legacyRestaurants = [];
 let selectedRestaurant = null;
 let selectedRestaurantId = null;
 let isSiteModerator = false;
 let loggedInStoreId = null;
+let authUser = null;
+let supabaseClient = null;
+let realtimeChannel = null;
 let storeFormMode = 'create';
 let storeFormImages = [];
 let storeImagesLoading = false;
+let storeSaveInProgress = false;
 let map;
 let markers = [];
 let currentUserLocation = null;
@@ -28,16 +32,6 @@ function safeStorageLoad() {
   } catch (error) {
     console.warn('ローカルストレージの読み込みに失敗しました。', error);
     return null;
-  }
-}
-
-function safeStorageSave(list) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-    return true;
-  } catch (error) {
-    console.warn('ローカルストレージの保存に失敗しました。', error);
-    return false;
   }
 }
 
@@ -128,12 +122,279 @@ async function addStoreImagesFromInput(input) {
   }
 }
 
-function loadRestaurants() {
-  const storedRestaurants = safeStorageLoad();
-  restaurants = (storedRestaurants || defaultRestaurants)
-    .map(normalizeRestaurantRecord)
-    .filter(Boolean);
-  safeStorageSave(restaurants);
+function setCloudStatus(message, isError = false) {
+  const status = document.getElementById('cloudStatus');
+  if (!status) return;
+  status.textContent = message;
+  status.closest('.cloud-status')?.classList.toggle('cloud-status-error', isError);
+}
+
+function initializeSupabase() {
+  const config = window.SUPABASE_CONFIG;
+  if (!window.supabase || !config?.url || !config?.anonKey) {
+    setCloudStatus('共有データベースが未設定です。READMEの設定手順を完了してください。', true);
+    return false;
+  }
+
+  supabaseClient = window.supabase.createClient(config.url, config.anonKey);
+  return true;
+}
+
+function getRestaurantRow(restaurant, images = getRestaurantImages(restaurant)) {
+  return {
+    id: restaurant.id,
+    owner_id: restaurant.ownerId || null,
+    name: restaurant.name,
+    category: restaurant.category,
+    tags: restaurant.tags,
+    address: restaurant.address,
+    emergency_closed: Boolean(restaurant.emergencyClosed),
+    opening_time: restaurant.openingTime,
+    closing_time: restaurant.closingTime,
+    phone: restaurant.phone,
+    budget: restaurant.budget,
+    lat: restaurant.lat,
+    lng: restaurant.lng,
+    images,
+    description: restaurant.description
+  };
+}
+
+function normalizeRestaurantRow(row) {
+  return normalizeRestaurantRecord({
+    id: row.id,
+    ownerId: row.owner_id,
+    name: row.name,
+    category: row.category,
+    tags: row.tags,
+    address: row.address,
+    emergencyClosed: row.emergency_closed,
+    openingTime: row.opening_time,
+    closingTime: row.closing_time,
+    phone: row.phone,
+    budget: row.budget,
+    lat: row.lat,
+    lng: row.lng,
+    images: row.images,
+    description: row.description
+  });
+}
+
+async function loadRestaurants() {
+  if (!supabaseClient) return;
+
+  setCloudStatus('共有データを読み込んでいます…');
+  const [{ data: restaurantRows, error: restaurantError }, { data: reviewRows, error: reviewError }] = await Promise.all([
+    supabaseClient.from('restaurants').select('*').order('created_at', { ascending: false }),
+    supabaseClient.from('reviews').select('*').order('created_at', { ascending: false })
+  ]);
+  if (restaurantError) throw restaurantError;
+  if (reviewError) throw reviewError;
+
+  const reviewsByRestaurant = new Map();
+  reviewRows.forEach((row) => {
+    const reviews = reviewsByRestaurant.get(row.restaurant_id) || [];
+    reviews.push({
+      id: row.id,
+      author: row.author,
+      rating: row.rating,
+      comment: row.comment,
+      createdAt: row.created_at
+    });
+    reviewsByRestaurant.set(row.restaurant_id, reviews);
+  });
+
+  restaurants = restaurantRows.map((row) => {
+    const restaurant = normalizeRestaurantRow(row);
+    restaurant.reviews = reviewsByRestaurant.get(row.id) || [];
+    updateRestaurantRatingFromReviews(restaurant);
+    return restaurant;
+  });
+  if (authUser) {
+    loggedInStoreId = restaurants.find((restaurant) => restaurant.ownerId === authUser.id)?.id || null;
+  }
+  setCloudStatus(`共有データを読み込みました（${restaurants.length}店舗）。`);
+  searchRestaurants();
+  updateAuthenticatedControls();
+  renderMapMarkers();
+}
+
+async function saveRestaurantToCloud(restaurant, isNew = false, oldImages = isNew ? [] : getRestaurantImages(restaurant)) {
+  if (!supabaseClient) throw new Error('共有データベースが設定されていません。');
+  const previousImages = getRestaurantImages(restaurant);
+  if (isNew) {
+    const { error } = await supabaseClient.from('restaurants').insert(getRestaurantRow(restaurant, []));
+    if (error) throw error;
+  }
+
+  const uploadedImages = [];
+  const newImagePaths = [];
+  try {
+    for (const image of previousImages) {
+      if (!image.startsWith('data:')) {
+        uploadedImages.push(image);
+        continue;
+      }
+      const response = await fetch(image);
+      if (!response.ok) throw new Error('店舗画像を読み込めませんでした。');
+      const blob = await response.blob();
+      const path = `${restaurant.id}/${crypto.randomUUID()}.jpg`;
+      const { error } = await supabaseClient.storage.from(IMAGE_BUCKET).upload(path, blob, {
+        contentType: 'image/jpeg',
+        upsert: false
+      });
+      if (error) throw error;
+      newImagePaths.push(path);
+      const { data } = supabaseClient.storage.from(IMAGE_BUCKET).getPublicUrl(path);
+      uploadedImages.push(data.publicUrl);
+    }
+
+    const { error } = await supabaseClient
+      .from('restaurants')
+      .upsert(getRestaurantRow(restaurant, uploadedImages), { onConflict: 'id' });
+    if (error) throw error;
+
+    const removedPaths = oldImages
+      .filter((image) => !uploadedImages.includes(image))
+      .map(getRestaurantStoragePath)
+      .filter(Boolean);
+    if (removedPaths.length) {
+      const { error: removeError } = await supabaseClient.storage.from(IMAGE_BUCKET).remove(removedPaths);
+      if (removeError) console.warn('削除済み店舗画像の整理に失敗しました。', removeError);
+    }
+    return uploadedImages;
+  } catch (error) {
+    if (newImagePaths.length) {
+      const { error: cleanupError } = await supabaseClient.storage.from(IMAGE_BUCKET).remove(newImagePaths);
+      if (cleanupError) console.warn('未保存の店舗画像の整理に失敗しました。', cleanupError);
+    }
+    if (isNew) {
+      const { error: rollbackError } = await supabaseClient.from('restaurants').delete().eq('id', restaurant.id);
+      if (rollbackError) console.warn('未完成の店舗データを削除できませんでした。', rollbackError);
+    }
+    throw error;
+  }
+}
+
+function getRestaurantStoragePath(imageUrl) {
+  if (!supabaseClient) return null;
+  const publicUrl = supabaseClient.storage.from(IMAGE_BUCKET).getPublicUrl('').data.publicUrl;
+  const prefix = publicUrl.replace(/\/$/, '');
+  if (!imageUrl.startsWith(`${prefix}/`)) return null;
+  return decodeURIComponent(imageUrl.slice(prefix.length + 1));
+}
+
+function subscribeToCloudChanges() {
+  if (!supabaseClient || realtimeChannel) return;
+  realtimeChannel = supabaseClient
+    .channel('public-restaurant-data')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'restaurants' }, () => {
+      loadRestaurants().catch(handleCloudError);
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'reviews' }, () => {
+      loadRestaurants().catch(handleCloudError);
+    })
+    .subscribe((status) => {
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        setCloudStatus('リアルタイム共有に接続できません。ページを再読み込みしてください。', true);
+      }
+    });
+}
+
+function handleCloudError(error) {
+  console.error('共有データの処理に失敗しました。', error);
+  setCloudStatus(`共有データの処理に失敗しました: ${error.message || error}`, true);
+}
+
+async function refreshAuthState(session) {
+  authUser = session?.user || null;
+  isSiteModerator = authUser?.app_metadata?.role === 'moderator';
+  loggedInStoreId = authUser
+    ? restaurants.find((restaurant) => restaurant.ownerId === authUser.id)?.id || null
+    : null;
+  updateAuthenticatedControls();
+}
+
+function updateAuthenticatedControls() {
+  const moderatorOnlyIds = ['exportDataBtn', 'importDataBtn', 'clearDataBtn', 'storeQrBtn'];
+  moderatorOnlyIds.forEach((id) => {
+    const button = document.getElementById(id);
+    if (button) button.style.display = isSiteModerator ? 'inline-flex' : 'none';
+  });
+  const addButton = document.getElementById('siteAdminAddBtn');
+  if (addButton) addButton.style.display = isSiteModerator || (authUser && !loggedInStoreId) ? 'inline-flex' : 'none';
+  const buttonLabel = document.getElementById('siteAdminAddBtn');
+  if (buttonLabel) buttonLabel.textContent = isSiteModerator ? '➕ 新規店舗を追加' : '➕ 自分のお店を登録';
+  const migrateButton = document.getElementById('migrateLegacyDataBtn');
+  if (migrateButton) migrateButton.style.display =
+    isSiteModerator && legacyRestaurants.length > 0 ? 'inline-flex' : 'none';
+  const title = document.getElementById('adminTitle');
+  if (title) {
+    const restaurant = restaurants.find((item) => item.id === loggedInStoreId);
+    title.textContent = isSiteModerator
+      ? '🛡️ サイト管理'
+      : restaurant ? `🏪 ${restaurant.name}の店舗管理` : '🏪 店舗担当者の登録';
+  }
+  renderStoreManagerPanel();
+  renderAdminList();
+}
+
+async function migrateLegacyRestaurants() {
+  if (!isSiteModerator || !legacyRestaurants.length) {
+    alert('端末内データの移行は、サイト管理者としてログインした場合に実行できます。');
+    return;
+  }
+  if (!confirm(`${legacyRestaurants.length}店舗の端末内データを共有データベースへ移行します。すでに共有済みの店舗は上書きせずに飛ばします。店舗担当者の旧ログイン情報は移行されません。続けますか？`)) return;
+
+  try {
+    const existingIds = new Set(restaurants.map((restaurant) => restaurant.id));
+    for (const record of legacyRestaurants) {
+      const restaurant = normalizeRestaurantRecord(record);
+      if (!existingIds.has(restaurant.id)) {
+        restaurant.ownerId = null;
+        restaurant.reviews = [];
+        await saveRestaurantToCloud(restaurant, true);
+        existingIds.add(restaurant.id);
+      }
+      const { data: savedReviews, error: reviewReadError } = await supabaseClient
+        .from('reviews')
+        .select('author,rating,comment')
+        .eq('restaurant_id', restaurant.id);
+      if (reviewReadError) throw reviewReadError;
+      const existingReviewCounts = new Map();
+      savedReviews.forEach((review) => {
+        const signature = JSON.stringify([review.author, review.rating, review.comment]);
+        existingReviewCounts.set(signature, (existingReviewCounts.get(signature) || 0) + 1);
+      });
+      const reviews = Array.isArray(record.reviews) ? record.reviews : [];
+      for (const [index, review] of reviews.entries()) {
+        const details = getReviewDetails(review, index);
+        if (!details.comment.trim()) continue;
+        const author = details.author.slice(0, 40) || 'ゲスト';
+        const comment = details.comment.slice(0, 1000);
+        const signature = JSON.stringify([author, details.rating, comment]);
+        const existingCount = existingReviewCounts.get(signature) || 0;
+        if (existingCount) {
+          existingReviewCounts.set(signature, existingCount - 1);
+          continue;
+        }
+        const { error } = await supabaseClient.from('reviews').insert({
+          restaurant_id: restaurant.id,
+          author,
+          rating: details.rating,
+          comment
+        });
+        if (error) throw error;
+        existingReviewCounts.set(signature, 1);
+      }
+    }
+    legacyRestaurants = [];
+    await loadRestaurants();
+    alert('端末内データを共有データベースへ移行しました。担当者アカウントの店舗への紐付けはREADMEの手順で行ってください。');
+  } catch (error) {
+    handleCloudError(error);
+    alert('データ移行の途中で失敗しました。エラーを確認し、残りを再度お試しください。');
+  }
 }
 
 function escapeHtml(value) {
@@ -251,7 +512,7 @@ function renderReviews(restaurant) {
           <span>${details.rating === null ? '' : `★ ${details.rating}.0`}</span>
         </div>
         <p class="review-comment">${escapeHtml(details.comment)}</p>
-        ${isSiteModerator ? `<button type="button" class="delete-review-btn" data-action="review-delete" data-id="${escapeHtml(restaurant.id)}" data-review-index="${index}">口コミを削除</button>` : ''}
+        ${isSiteModerator ? `<button type="button" class="delete-review-btn" data-action="review-delete" data-id="${escapeHtml(restaurant.id)}" data-review-id="${escapeHtml(review.id || '')}">口コミを削除</button>` : ''}
       </article>
     `;
   }).join('');
@@ -311,13 +572,21 @@ function renderStoreManagerPanel() {
   if (!panel) return;
 
   const restaurant = restaurants.find((item) => item.id === loggedInStoreId);
-  if (!restaurant || isSiteModerator) {
+  if (isSiteModerator || !authUser) {
     panel.hidden = true;
     panel.innerHTML = '';
     return;
   }
 
   panel.hidden = false;
+  if (!restaurant) {
+    panel.innerHTML = `
+      <h2>店舗担当者アカウント</h2>
+      <p>ログイン中のアカウントに店舗がまだ登録されていません。</p>
+      <button type="button" class="edit-own-store-btn" data-action="create-own-store">➕ 自分のお店を登録</button>
+    `;
+    return;
+  }
   panel.innerHTML = `
     <h2>${escapeHtml(restaurant.name)} 店舗管理</h2>
     <p>${restaurant.emergencyClosed
@@ -330,7 +599,7 @@ function renderStoreManagerPanel() {
   `;
 }
 
-function toggleEmergencyClosure() {
+async function toggleEmergencyClosure() {
   const restaurant = restaurants.find((item) => item.id === loggedInStoreId);
   if (!restaurant) {
     alert('ログイン中の店舗を確認できません。いったんログアウトして再度ログインしてください。');
@@ -343,8 +612,20 @@ function toggleEmergencyClosure() {
     : '営業を再開しますか？登録された営業時間内であれば、営業中のお店に再表示されます。';
   if (!confirm(message)) return;
 
+  const previousValue = restaurant.emergencyClosed;
   restaurant.emergencyClosed = closing;
-  safeStorageSave(restaurants);
+  try {
+    const { error } = await supabaseClient
+      .from('restaurants')
+      .update({ emergency_closed: closing })
+      .eq('id', restaurant.id);
+    if (error) throw error;
+  } catch (error) {
+    restaurant.emergencyClosed = previousValue;
+    handleCloudError(error);
+    alert('営業状態を共有データベースに保存できませんでした。');
+    return;
+  }
   renderStoreManagerPanel();
   searchRestaurants();
   renderMapMarkers();
@@ -571,7 +852,7 @@ function openRestaurantDetail(restaurantId) {
   modal.classList.add('show');
 }
 
-function addRestaurantReview(restaurantId, form) {
+async function addRestaurantReview(restaurantId, form) {
   const restaurant = restaurants.find((item) => item.id === restaurantId);
   if (!restaurant) return;
 
@@ -584,35 +865,38 @@ function addRestaurantReview(restaurantId, form) {
     return;
   }
 
-  if (!Array.isArray(restaurant.reviews)) restaurant.reviews = [];
-  restaurant.reviews.push({
-    id: crypto.randomUUID(),
+  const { error } = await supabaseClient.from('reviews').insert({
+    restaurant_id: restaurantId,
     author,
     rating,
-    comment,
-    createdAt: new Date().toISOString()
+    comment
   });
-  updateRestaurantRatingFromReviews(restaurant);
-  safeStorageSave(restaurants);
+  if (error) {
+    handleCloudError(error);
+    alert('口コミを共有データベースに保存できませんでした。');
+    return;
+  }
+  await loadRestaurants();
   openRestaurantDetail(restaurantId);
-  searchRestaurants();
 }
 
-function deleteRestaurantReview(restaurantId, reviewIndex) {
+async function deleteRestaurantReview(restaurantId, reviewId) {
   if (!isSiteModerator) {
     alert('口コミを削除するにはモデレーターとしてログインしてください。');
     return;
   }
   const restaurant = restaurants.find((item) => item.id === restaurantId);
-  if (!restaurant || !Array.isArray(restaurant.reviews) || !Number.isInteger(reviewIndex)) return;
-  if (reviewIndex < 0 || reviewIndex >= restaurant.reviews.length) return;
+  if (!restaurant || !reviewId) return;
   if (!confirm('この口コミを削除しますか？')) return;
 
-  restaurant.reviews.splice(reviewIndex, 1);
-  updateRestaurantRatingFromReviews(restaurant);
-  safeStorageSave(restaurants);
+  const { error } = await supabaseClient.from('reviews').delete().eq('id', reviewId);
+  if (error) {
+    handleCloudError(error);
+    alert('口コミを削除できませんでした。');
+    return;
+  }
+  await loadRestaurants();
   openRestaurantDetail(restaurantId);
-  searchRestaurants();
 }
 
 function openRestaurantRoute(restaurantId) {
@@ -676,6 +960,10 @@ function switchView(view) {
 }
 
 function openLoginModal() {
+  if (authUser) {
+    switchView('admin');
+    return;
+  }
   const modal = document.getElementById('loginModal');
   if (modal) modal.classList.add('show');
 }
@@ -764,63 +1052,85 @@ function downloadStoreQrCode() {
   link.click();
 }
 
-function login() {
-  const loginId = document.getElementById('loginId')?.value.trim() || '';
-  const password = document.getElementById('loginPw')?.value.trim() || '';
+async function login() {
+  if (!supabaseClient) {
+    alert('共有データベースが設定されていません。READMEの設定手順を完了してください。');
+    return;
+  }
+  const email = document.getElementById('loginId')?.value.trim() || '';
+  const password = document.getElementById('loginPw')?.value || '';
+  if (!email || !password) {
+    alert('メールアドレスとパスワードを入力してください。');
+    return;
+  }
 
-  loggedInStoreId = null;
-  if (loginId === 'admin' && password === ADMIN_PASSWORD) {
-    isSiteModerator = true;
+  const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  if (error) {
+    alert(`ログインできませんでした: ${error.message}`);
+    return;
+  }
+  try {
+    await loadRestaurants();
+    await refreshAuthState(data.session);
     switchView('admin');
     closeLoginModal();
-    renderStoreManagerPanel();
-    renderAdminList();
-    if (document.getElementById('siteAdminAddBtn')) document.getElementById('siteAdminAddBtn').style.display = 'inline-flex';
-    if (document.getElementById('exportDataBtn')) document.getElementById('exportDataBtn').style.display = 'inline-flex';
-    if (document.getElementById('importDataBtn')) document.getElementById('importDataBtn').style.display = 'inline-flex';
-    if (document.getElementById('clearDataBtn')) document.getElementById('clearDataBtn').style.display = 'inline-flex';
-    if (document.getElementById('storeQrBtn')) document.getElementById('storeQrBtn').style.display = 'inline-flex';
-  } else {
-    const store = restaurants.find((restaurant) =>
-      restaurant.storeLoginId === loginId && restaurant.storePassword === password
-    );
-    if (!store) {
-      alert('IDまたはパスワードが違います。');
-      return;
-    }
-
-    isSiteModerator = false;
-    loggedInStoreId = store.id;
-    switchView('admin');
-    closeLoginModal();
-    ['siteAdminAddBtn', 'exportDataBtn', 'importDataBtn', 'clearDataBtn', 'storeQrBtn']
-      .forEach((id) => {
-        const button = document.getElementById(id);
-        if (button) button.style.display = 'none';
-      });
-    renderStoreManagerPanel();
-    renderAdminList();
-    const title = document.getElementById('adminTitle');
-    if (title) title.textContent = `🏪 ${store.name}の店舗管理`;
+  } catch (loadError) {
+    handleCloudError(loadError);
+    alert('ログインしましたが、店舗データを読み込めませんでした。');
   }
 }
 
-function logout() {
+async function registerAccount() {
+  if (!supabaseClient) {
+    alert('共有データベースが設定されていません。READMEの設定手順を完了してください。');
+    return;
+  }
+  const email = document.getElementById('loginId')?.value.trim() || '';
+  const password = document.getElementById('loginPw')?.value || '';
+  if (!email || password.length < 8) {
+    alert('メールアドレスを入力し、パスワードは8文字以上にしてください。');
+    return;
+  }
+
+  const { data, error } = await supabaseClient.auth.signUp({ email, password });
+  if (error) {
+    alert(`アカウントを作成できませんでした: ${error.message}`);
+    return;
+  }
+  if (!data.session) {
+    alert('確認メールを送信しました。メール内のリンクから登録を完了してからログインしてください。');
+    return;
+  }
+  try {
+    await loadRestaurants();
+    await refreshAuthState(data.session);
+    switchView('admin');
+    closeLoginModal();
+  } catch (loadError) {
+    handleCloudError(loadError);
+    alert('アカウントを作成しましたが、店舗データを読み込めませんでした。');
+  }
+}
+
+async function logout() {
+  if (supabaseClient) {
+    const { error } = await supabaseClient.auth.signOut();
+    if (error) {
+      handleCloudError(error);
+      alert('ログアウトできませんでした。');
+      return;
+    }
+  }
+  authUser = null;
   isSiteModerator = false;
   loggedInStoreId = null;
   switchView('user');
   closeLoginModal();
   document.getElementById('loginId').value = '';
   document.getElementById('loginPw').value = '';
-  if (document.getElementById('siteAdminAddBtn')) document.getElementById('siteAdminAddBtn').style.display = 'none';
-  if (document.getElementById('exportDataBtn')) document.getElementById('exportDataBtn').style.display = 'none';
-  if (document.getElementById('importDataBtn')) document.getElementById('importDataBtn').style.display = 'none';
-  if (document.getElementById('clearDataBtn')) document.getElementById('clearDataBtn').style.display = 'none';
-  if (document.getElementById('storeQrBtn')) document.getElementById('storeQrBtn').style.display = 'none';
   const title = document.getElementById('adminTitle');
   if (title) title.textContent = '🏪 管理画面';
-  renderStoreManagerPanel();
-  renderAdminList();
+  updateAuthenticatedControls();
 }
 
 function updateModalMapMarker(location, popupText) {
@@ -911,13 +1221,20 @@ function initializeModalMap() {
 function openAddStoreModal() {
   const modal = document.getElementById('addStoreModal');
   if (!modal) return;
+  if (!authUser) {
+    alert('店舗情報の登録にはログインが必要です。');
+    return;
+  }
+  if (!isSiteModerator && loggedInStoreId) {
+    alert('1つの担当者アカウントに登録できる店舗は1店舗です。');
+    return;
+  }
 
   storeFormMode = 'create';
   const modalTitle = modal.querySelector('h2');
-  if (modalTitle) modalTitle.textContent = '➕ 新規店舗の追加';
+  if (modalTitle) modalTitle.textContent = isSiteModerator ? '➕ 新規店舗の追加' : '➕ 自分のお店を登録';
   modal.querySelector('.registration-intro').innerHTML =
     '画面の案内にそって、上から順番に入力してください。<span>※「必須」と書かれた項目は入力が必要です。</span>';
-  modal.querySelector('.store-account-fields').hidden = false;
   modal.querySelector('.image-upload-block').hidden = false;
   const saveButton = document.getElementById('createNewStoreBtn');
   if (saveButton) {
@@ -927,8 +1244,7 @@ function openAddStoreModal() {
   [
     'newStoreName', 'newStoreTags', 'newStoreAddress',
     'newStoreOpeningTime', 'newStoreClosingTime',
-    'newStoreDistance', 'newStoreLat', 'newStoreLng', 'newStoreDesc',
-    'newStoreLoginId', 'newStorePassword'
+    'newStoreDistance', 'newStoreLat', 'newStoreLng', 'newStoreDesc'
   ].forEach((id) => {
     const input = document.getElementById(id);
     if (input) input.value = '';
@@ -959,13 +1275,24 @@ function closeAddStoreModal() {
   storeFormMode = 'create';
 }
 
-function clearAllData() {
+async function clearAllData() {
+  if (!isSiteModerator) {
+    alert('全データの削除はサイト管理者のみ実行できます。');
+    return;
+  }
   if (!confirm('全ての店舗データを削除しますか？')) return;
-  restaurants = [];
-  safeStorageSave(restaurants);
-  searchRestaurants();
-  renderAdminList();
-  renderMapMarkers();
+  const imagePaths = restaurants.flatMap(getRestaurantImages).map(getRestaurantStoragePath).filter(Boolean);
+  if (imagePaths.length) {
+    const { error: imageError } = await supabaseClient.storage.from(IMAGE_BUCKET).remove(imagePaths);
+    if (imageError) console.warn('店舗画像の整理に失敗しました。', imageError);
+  }
+  const { error } = await supabaseClient.from('restaurants').delete().neq('id', '');
+  if (error) {
+    handleCloudError(error);
+    alert('店舗データを削除できませんでした。');
+    return;
+  }
+  await loadRestaurants();
 }
 
 function getLatLngFromAddress() {
@@ -1030,9 +1357,14 @@ function getCurrentLocationForNewStore() {
   });
 }
 
-function createNewStore() {
+async function createNewStore() {
   if (storeFormMode === 'edit') {
-    saveStoreInformation();
+    await saveStoreInformation();
+    return;
+  }
+  if (storeSaveInProgress) return;
+  if (!authUser || (!isSiteModerator && loggedInStoreId)) {
+    alert('ログイン状態を確認してください。店舗担当者は1アカウントにつき1店舗を登録できます。');
     return;
   }
 
@@ -1046,8 +1378,6 @@ function createNewStore() {
   const lng = Number(document.getElementById('newStoreLng')?.value || 0);
   const desc = document.getElementById('newStoreDesc')?.value.trim() || '';
   if (storeImagesLoading) return;
-  const storeLoginId = document.getElementById('newStoreLoginId')?.value.trim() || '';
-  const storePassword = document.getElementById('newStorePassword')?.value || '';
 
   if (!name || !tags || !address) {
     alert('店舗名・料理の種類・住所を入力または選択してください。');
@@ -1057,23 +1387,13 @@ function createNewStore() {
     alert('有効な開店時刻と閉店時刻を入力してください。');
     return;
   }
-  if (!storeLoginId || storePassword.length < 6) {
-    alert('店舗担当者用IDを入力し、パスワードは6文字以上にしてください。');
-    return;
-  }
-  if (restaurants.some((restaurant) => restaurant.storeLoginId === storeLoginId)) {
-    alert('この店舗担当者用IDはすでに使われています。別のIDを入力してください。');
-    return;
-  }
-
   const restaurant = {
     id: crypto.randomUUID(),
+    ownerId: isSiteModerator ? null : authUser.id,
     name,
     category: tags || '未分類',
     tags,
     address,
-    storeLoginId,
-    storePassword,
     emergencyClosed: false,
     openingTime,
     closingTime,
@@ -1088,17 +1408,36 @@ function createNewStore() {
     description: desc
   };
 
-  restaurants.unshift(restaurant);
-  if (!safeStorageSave(restaurants)) {
-    restaurants.shift();
-    alert('写真を含む店舗情報を保存できませんでした。写真を減らしてからもう一度お試しください。');
-    return;
+  const saveButton = document.getElementById('createNewStoreBtn');
+  storeSaveInProgress = true;
+  if (saveButton) {
+    saveButton.disabled = true;
+    saveButton.textContent = '共有データに保存しています…';
   }
-  searchRestaurants();
-  renderAdminList();
-  renderMapMarkers();
+  const imageInput = document.getElementById('newStoreImagesInput');
+  if (imageInput) imageInput.disabled = true;
+  try {
+    restaurant.images = await saveRestaurantToCloud(restaurant, true);
+  } catch (error) {
+    handleCloudError(error);
+    alert('店舗を登録できませんでした。入力内容と画像の容量を確認して、もう一度お試しください。');
+    return;
+  } finally {
+    storeSaveInProgress = false;
+    if (imageInput) imageInput.disabled = false;
+    if (saveButton) {
+      saveButton.disabled = false;
+      saveButton.textContent = '内容を確認して店舗を登録';
+    }
+  }
   closeAddStoreModal();
-  alert('店舗を追加しました。');
+  try {
+    await loadRestaurants();
+    alert('店舗を共有データベースに登録しました。');
+  } catch (error) {
+    handleCloudError(error);
+    alert('店舗は保存されましたが、一覧の更新に失敗しました。再接続してください。');
+  }
 }
 
 function normalizeRestaurantRecord(record) {
@@ -1106,7 +1445,7 @@ function normalizeRestaurantRecord(record) {
   const imageSource = typeof record.image === 'string' ? record.image.trim() : '';
   const imageList = Array.isArray(record.images) ? record.images : [];
   const images = [...new Set([...imageList, imageSource]
-    .filter((image) => typeof image === 'string' && image.trim() && image.trim() !== LEGACY_PLACEHOLDER_IMAGE)
+    .filter((image) => typeof image === 'string' && image.trim() && image.trim() !== LEGACY_PLACEHOLDER_IMAGE && !image.trim().startsWith('blob:'))
     .map((image) => image.trim()))].slice(0, 10);
   const storedCategory = record.category || record.tags || '未分類';
   const storedTags = record.tags || '';
@@ -1119,8 +1458,7 @@ function normalizeRestaurantRecord(record) {
     category,
     tags,
     address: record.address || '',
-    storeLoginId: record.storeLoginId || '',
-    storePassword: record.storePassword || '',
+    ownerId: record.ownerId || null,
     emergencyClosed: Boolean(record.emergencyClosed),
     openingTime: record.openingTime || '',
     closingTime: record.closingTime || '',
@@ -1137,7 +1475,11 @@ function normalizeRestaurantRecord(record) {
 }
 
 function exportRestaurantsAsText() {
-  const payload = JSON.stringify(restaurants, null, 2);
+  const exportableRestaurants = restaurants.map((restaurant) => {
+    const { ownerId, ...publicFields } = restaurant;
+    return publicFields;
+  });
+  const payload = JSON.stringify(exportableRestaurants, null, 2);
   const blob = new Blob([payload], { type: 'text/plain;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -1158,7 +1500,7 @@ function importRestaurantTextFromFile(file) {
   if (!file) return;
 
   const reader = new FileReader();
-  reader.onload = () => {
+  reader.onload = async () => {
     try {
       const parsed = JSON.parse(String(reader.result));
       const nextRestaurants = Array.isArray(parsed) ? parsed.map(normalizeRestaurantRecord).filter(Boolean) : [];
@@ -1168,31 +1510,64 @@ function importRestaurantTextFromFile(file) {
         return;
       }
 
-      restaurants = nextRestaurants;
-      safeStorageSave(restaurants);
-      searchRestaurants();
-      renderAdminList();
-      renderMapMarkers();
-      alert('店舗データを読み込みました。');
+      if (!isSiteModerator) {
+        alert('店舗データの一括読み込みはサイト管理者のみ実行できます。');
+        return;
+      }
+      if (restaurants.length) {
+        alert('安全のため、一括読み込みは共有データベースに店舗がない場合のみ実行できます。');
+        return;
+      }
+      for (const restaurant of nextRestaurants) {
+        const source = parsed.find((item) => item.id === restaurant.id) || {};
+        restaurant.ownerId = null;
+        restaurant.reviews = [];
+        restaurant.images = await saveRestaurantToCloud(restaurant, true);
+        for (const [index, review] of (Array.isArray(source.reviews) ? source.reviews : []).entries()) {
+          const details = getReviewDetails(review, index);
+          if (!details.comment.trim()) continue;
+          const { error } = await supabaseClient.from('reviews').insert({
+            restaurant_id: restaurant.id,
+            author: details.author.slice(0, 40) || 'ゲスト',
+            rating: details.rating,
+            comment: details.comment.slice(0, 1000)
+          });
+          if (error) throw error;
+        }
+      }
+      await loadRestaurants();
+      alert('店舗データを共有データベースに読み込みました。');
     } catch (error) {
-      alert('テキストファイルの読み込みに失敗しました。JSON形式を確認してください。');
       console.error(error);
+      handleCloudError(error);
+      alert('データの読み込みに失敗しました。JSON形式とデータベース設定を確認してください。');
     }
   };
   reader.readAsText(file, 'utf-8');
 }
 
-function deleteStore(restaurantId) {
+async function deleteStore(restaurantId) {
+  if (!isSiteModerator) {
+    alert('店舗を削除するにはサイト管理者としてログインしてください。');
+    return;
+  }
   const target = restaurants.find((restaurant) => restaurant.id === restaurantId);
   if (!target) return;
 
   if (!confirm(`${target.name} を削除しますか？`)) return;
 
-  restaurants = restaurants.filter((restaurant) => restaurant.id !== restaurantId);
-  safeStorageSave(restaurants);
-  searchRestaurants();
-  renderAdminList();
-  renderMapMarkers();
+  const imagePaths = getRestaurantImages(target).map(getRestaurantStoragePath).filter(Boolean);
+  if (imagePaths.length) {
+    const { error: imageError } = await supabaseClient.storage.from(IMAGE_BUCKET).remove(imagePaths);
+    if (imageError) console.warn('削除店舗画像の整理に失敗しました。', imageError);
+  }
+  const { error } = await supabaseClient.from('restaurants').delete().eq('id', restaurantId);
+  if (error) {
+    handleCloudError(error);
+    alert('店舗を削除できませんでした。');
+    return;
+  }
+  await loadRestaurants();
 }
 
 function editStore(restaurantId) {
@@ -1210,8 +1585,7 @@ function editStore(restaurantId) {
   const modalTitle = modal.querySelector('h2');
   if (modalTitle) modalTitle.textContent = `✏️ ${restaurant.name}の店舗情報を変更`;
   modal.querySelector('.registration-intro').innerHTML =
-    '変更したい項目を直して、最後に保存してください。<span>担当者用のログイン情報はここでは変更できません。</span>';
-  modal.querySelector('.store-account-fields').hidden = true;
+    '変更したい項目を直して、最後に保存してください。<span>ログインはメールアドレスのアカウントで管理されます。</span>';
   modal.querySelector('.image-upload-block').hidden = false;
   document.getElementById('newStoreName').value = restaurant.name || '';
   const categorySelect = document.getElementById('newStoreTags');
@@ -1254,7 +1628,8 @@ function editStore(restaurantId) {
   }
 }
 
-function saveStoreInformation(restaurantId = loggedInStoreId) {
+async function saveStoreInformation(restaurantId = loggedInStoreId) {
+  if (storeSaveInProgress) return;
   const index = restaurants.findIndex((item) => item.id === restaurantId);
   if (index < 0) return;
   if (!isSiteModerator && loggedInStoreId !== restaurantId) {
@@ -1278,32 +1653,49 @@ function saveStoreInformation(restaurantId = loggedInStoreId) {
   if (storeImagesLoading) return;
 
   const previousRestaurant = restaurants[index];
-  restaurants[index] = {
-    ...restaurants[index],
+  const updatedRestaurant = {
+    ...previousRestaurant,
     name,
     category,
     tags: category,
     address,
     openingTime,
     closingTime,
-    budget: document.getElementById('newStoreDistance').value || restaurants[index].budget,
-    lat: Number(document.getElementById('newStoreLat').value || restaurants[index].lat),
-    lng: Number(document.getElementById('newStoreLng').value || restaurants[index].lng),
+    budget: document.getElementById('newStoreDistance').value || previousRestaurant.budget,
+    lat: Number(document.getElementById('newStoreLat').value || previousRestaurant.lat),
+    lng: Number(document.getElementById('newStoreLng').value || previousRestaurant.lng),
     description: document.getElementById('newStoreDesc').value.trim(),
     images: [...storeFormImages],
     image: storeFormImages[0] || ''
   };
-  if (!safeStorageSave(restaurants)) {
-    restaurants[index] = previousRestaurant;
-    alert('写真を含む店舗情報を保存できませんでした。写真を減らしてからもう一度お試しください。');
-    return;
+  restaurants[index] = updatedRestaurant;
+  const saveButton = document.getElementById('createNewStoreBtn');
+  storeSaveInProgress = true;
+  if (saveButton) {
+    saveButton.disabled = true;
+    saveButton.textContent = '共有データに保存しています…';
   }
-  searchRestaurants();
-  renderAdminList();
-  renderMapMarkers();
-  renderStoreManagerPanel();
+  const imageInput = document.getElementById('newStoreImagesInput');
+  if (imageInput) imageInput.disabled = true;
+  try {
+    updatedRestaurant.images = await saveRestaurantToCloud(updatedRestaurant, false, getRestaurantImages(previousRestaurant));
+    updatedRestaurant.image = updatedRestaurant.images[0] || '';
+  } catch (error) {
+    restaurants[index] = previousRestaurant;
+    handleCloudError(error);
+    alert('店舗情報を保存できませんでした。入力内容と画像の容量を確認してください。');
+    return;
+  } finally {
+    storeSaveInProgress = false;
+    if (imageInput) imageInput.disabled = false;
+    if (saveButton) {
+      saveButton.disabled = false;
+      saveButton.textContent = '変更を保存する';
+    }
+  }
+  await loadRestaurants();
   closeAddStoreModal();
-  alert('店舗情報を変更しました。');
+  alert('店舗情報を共有データベースに保存しました。');
 }
 
 function showLocation(onSuccess) {
@@ -1361,7 +1753,6 @@ function bindEvents() {
   document.getElementById('adminModeBtn')?.addEventListener('click', openLoginModal);
   document.getElementById('searchInput')?.addEventListener('input', searchRestaurants);
   document.getElementById('categoryFilter')?.addEventListener('change', searchRestaurants);
-  document.getElementById('loginSubmit')?.addEventListener('click', login);
   document.getElementById('closeLoginModal')?.addEventListener('click', closeLoginModal);
   document.getElementById('logoutButton')?.addEventListener('click', logout);
   document.getElementById('siteAdminAddBtn')?.addEventListener('click', openAddStoreModal);
@@ -1384,16 +1775,6 @@ function bindEvents() {
     if (file) importRestaurantTextFromFile(file);
     event.target.value = '';
   });
-  document.getElementById('clearDataBtn')?.addEventListener('click', () => {
-    if (confirm('全ての店舗データを削除しますか？')) {
-      restaurants = [];
-      safeStorageSave(restaurants);
-      searchRestaurants();
-      renderAdminList();
-      renderMapMarkers();
-    }
-  });
-
   document.getElementById('restaurantList')?.addEventListener('click', (event) => {
     const button = event.target.closest('button[data-action]');
     if (!button) return;
@@ -1409,7 +1790,7 @@ function bindEvents() {
 
     if (button.dataset.action === 'route') openRestaurantRoute(button.dataset.id);
     if (button.dataset.action === 'review-delete') {
-      deleteRestaurantReview(button.dataset.id, Number(button.dataset.reviewIndex));
+      deleteRestaurantReview(button.dataset.id, button.dataset.reviewId);
     }
   });
 
@@ -1426,6 +1807,7 @@ function bindEvents() {
 
     if (button.dataset.action === 'toggle-emergency-closure') toggleEmergencyClosure();
     if (button.dataset.action === 'edit-own-store' && loggedInStoreId) editStore(loggedInStoreId);
+    if (button.dataset.action === 'create-own-store') openAddStoreModal();
   });
 
   document.getElementById('adminRestaurantList')?.addEventListener('click', (event) => {
@@ -1439,12 +1821,51 @@ function bindEvents() {
 }
 
 function initializeApp() {
-  loadRestaurants();
+  legacyRestaurants = (safeStorageLoad() || [])
+    .filter((record) => record && typeof record === 'object')
+    .map((record, index) => {
+      const portableRecord = { ...record, id: record.id || `legacy-${index}` };
+      delete portableRecord.storeLoginId;
+      delete portableRecord.storePassword;
+      return portableRecord;
+    });
+  if (legacyRestaurants.length) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(legacyRestaurants));
+    } catch (error) {
+      console.warn('旧店舗ログイン情報を端末内から整理できませんでした。', error);
+    }
+  }
   bindEvents();
   switchView('user');
-  searchRestaurants();
-  renderAdminList();
   createMap();
+  document.getElementById('retryCloudBtn')?.addEventListener('click', () => {
+    loadRestaurants()
+      .then(() => refreshAuthState(authUser ? { user: authUser } : null))
+      .catch(handleCloudError);
+  });
+  if (!initializeSupabase()) {
+    searchRestaurants();
+    return;
+  }
+
+  supabaseClient.auth.onAuthStateChange((_event, session) => {
+    authUser = session?.user || null;
+    isSiteModerator = authUser?.app_metadata?.role === 'moderator';
+    if (!authUser) loggedInStoreId = null;
+    updateAuthenticatedControls();
+  });
+  supabaseClient.auth.getSession()
+    .then(async ({ data, error }) => {
+      if (error) throw error;
+      await loadRestaurants();
+      await refreshAuthState(data.session);
+      subscribeToCloudChanges();
+    })
+    .catch((error) => {
+      handleCloudError(error);
+      searchRestaurants();
+    });
   window.setInterval(() => {
     searchRestaurants();
     renderMapMarkers();
