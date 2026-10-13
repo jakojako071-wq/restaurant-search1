@@ -1098,18 +1098,24 @@ async function processEmergencyClosureQr() {
 function processPendingStoreRegistration() {
   if (!pendingStoreRegistration) return;
   if (!authUser) {
-    document.getElementById('loginModal')?.classList.add('show');
+    switchView('admin');
+    if (!document.getElementById('addStoreModal')?.classList.contains('show')) {
+      openAddStoreModal(true);
+    }
     return;
   }
   pendingStoreRegistration = false;
   localStorage.removeItem('pendingStoreRegistration');
   if (!isSiteModerator && loggedInStoreId) {
+    closeAddStoreModal();
     switchView('admin');
     alert('このアカウントには登録済みの店舗があります。店舗管理ページから情報を編集してください。');
     return;
   }
   switchView('admin');
-  openAddStoreModal();
+  if (!document.getElementById('addStoreModal')?.classList.contains('show')) {
+    openAddStoreModal();
+  }
 }
 
 function copyStoreQrUrl() {
@@ -1341,10 +1347,10 @@ function initializeModalMap() {
   });
 }
 
-function openAddStoreModal() {
+function openAddStoreModal(fromRegistrationQr = false) {
   const modal = document.getElementById('addStoreModal');
   if (!modal) return;
-  if (!authUser) {
+  if (!authUser && !fromRegistrationQr) {
     alert('店舗情報の登録にはログインが必要です。');
     return;
   }
@@ -1355,9 +1361,10 @@ function openAddStoreModal() {
 
   storeFormMode = 'create';
   const modalTitle = modal.querySelector('h2');
-  if (modalTitle) modalTitle.textContent = isSiteModerator ? '➕ 新規店舗の追加' : '➕ 自分のお店を登録';
-  modal.querySelector('.registration-intro').innerHTML =
-    '画面の案内にそって、上から順番に入力してください。<span>※「必須」と書かれた項目は入力が必要です。</span>';
+  if (modalTitle) modalTitle.textContent = isSiteModerator || fromRegistrationQr ? '➕ 新規店舗の追加' : '➕ 自分のお店を登録';
+  modal.querySelector('.registration-intro').innerHTML = !authUser
+    ? '店舗情報を入力してください。保存時に担当者アカウントでログインまたは作成できます。<span>※入力内容はログイン後も保持されます。</span>'
+    : '画面の案内にそって、上から順番に入力してください。<span>※「必須」と書かれた項目は入力が必要です。</span>';
   modal.querySelector('.image-upload-block').hidden = false;
   const saveButton = document.getElementById('createNewStoreBtn');
   if (saveButton) {
@@ -1377,6 +1384,7 @@ function openAddStoreModal() {
   storeFormImages = [];
   storeImagesLoading = false;
   renderStoreImagePreview('newStoreImagePreview');
+  modal.classList.add('show');
 
   if (!modalMap) {
     initializeModalMap();
@@ -1388,8 +1396,6 @@ function openAddStoreModal() {
 
   const form = document.getElementById('newStoreName');
   if (form) form.focus();
-
-  modal.classList.add('show');
 }
 
 function closeAddStoreModal() {
@@ -1489,7 +1495,12 @@ async function createNewStore() {
     return;
   }
   if (storeSaveInProgress) return;
-  if (!authUser || (!isSiteModerator && loggedInStoreId)) {
+  if (!authUser) {
+    alert('店舗を登録するには担当者アカウントでログインしてください。フォームの入力内容は保持されます。');
+    openLoginModal();
+    return;
+  }
+  if (!isSiteModerator && loggedInStoreId) {
     alert('ログイン状態を確認してください。店舗担当者は1アカウントにつき1店舗を登録できます。');
     return;
   }
