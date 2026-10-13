@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>いま営業中のお店</title>
+    <meta name="theme-color" content="#0f766e">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="いま営業中">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="description" content="現在地から近い営業中の飲食店を探せるアプリ">
+    <meta name="robots" content="noindex, nofollow, noarchive">
+    <meta name="format-detection" content="telephone=no">
+    <link rel="icon" href="app-icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="app-icon.svg">
+    <link rel="manifest" href="manifest.webmanifest">
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<!-- ヘッダー -->
+<header class="header">
+    <div class="logo">🍽️ いま営業中</div>
+
+    <div class="mode-switch">
+        <button id="userModeBtn" class="active" onclick="switchView('user')">🔍 お店を探す</button>
+        <button id="adminModeBtn" onclick="openLoginModal()">🏪 管理画面</button>
+    </div>
+
+    <div class="header-tools">
+        <button class="location-btn" onclick="sortByDistance()">📍 近い順に並び替え</button>
+        <button class="location-btn" onclick="showLocation()">📍 現在地を表示</button>
+    </div>
+</header>
+
+<!-- 1. 利用者用画面 -->
+<main id="userPage" class="page-view active">
+    <section class="search-section">
+        <h1>今、何を食べたい？</h1>
+
+        <div class="search-box">
+            <span>🔎</span>
+            <input type="text" id="searchInput" placeholder="#家系 #個室 #深夜営業 などで検索..." oninput="searchRestaurants()">
+        </div>
+        <p class="search-hint">※キーワードや#タグに関連するお店から順番に表示されます</p>
+    </section>
+
+    <section class="map-section">
+        <div id="map"></div>
+    </section>
+
+    <section class="restaurant-section">
+        <div class="section-title">
+            <h2>🟢 営業中のお店</h2>
+            <span id="restaurantCount"></span>
+        </div>
+        <div id="restaurantList"></div>
+    </section>
+</main>
+
+
+<!-- 2. 管理画面（店舗運営者 / サイト管理者） -->
+<div id="adminPage" class="page-view">
+    <div class="admin-container">
+        <div class="admin-header">
+            <div>
+                <h1 id="adminTitle">🏪 管理画面</h1>
+                <p class="admin-subtitle" id="loggedInStoreInfo">ログイン中</p>
+            </div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button id="storeQrBtn" class="qr-button" style="display: none;" onclick="openStoreQrModal()">📱 追加用QR</button>
+                <button id="siteAdminAddBtn" class="add-store-btn" style="display: none;" onclick="openAddStoreModal()">➕ 新規店舗を追加</button>
+                <button id="exportDataBtn" class="add-store-btn" style="display: none;" onclick="exportRestaurantsAsText()">📤 テキスト保存</button>
+                <button id="importDataBtn" class="add-store-btn" style="display: none;" onclick="triggerImportRestaurantText()">📥 テキスト読込</button>
+                <button id="clearDataBtn" class="logout-btn" style="display: none; background-color: #ef4444;" onclick="clearAllData()">🗑️ 全データ初期化</button>
+                <button class="logout-btn" onclick="logout()">ログアウト</button>
+            </div>
+        </div>
+
+        <input id="importRestaurantFile" type="file" accept=".txt,.json,text/plain" hidden>
+        <div id="adminRestaurantList" class="admin-list"></div>
+    </div>
+</div>
+
+<!-- 店舗情報編集モーダル -->
+<div id="editStoreModal" class="modal">
+    <div class="modal-content" style="max-width: 600px;">
+        <button class="close-btn" onclick="closeEditStoreModal()">×</button>
+        <h2>✏️ 店舗情報を編集</h2>
+        <div class="add-store-form">
+            <input type="text" id="editStoreName" placeholder="店舗名">
+            <input type="text" id="editStoreTags" placeholder="タグ（カンマ区切り）">
+            <input type="text" id="editStoreAddress" placeholder="住所">
+            <input type="text" id="editStoreDistance" placeholder="徒歩（例: 徒歩3分）">
+            <div style="display: flex; gap: 8px;">
+                <input type="number" step="0.0001" id="editStoreLat" placeholder="緯度">
+                <input type="number" step="0.0001" id="editStoreLng" placeholder="経度">
+            </div>
+            <textarea id="editStoreDesc" placeholder="店舗の説明"></textarea>
+            <div class="image-upload-block">
+                <label for="editStoreImagesInput">店舗画像（最大10枚）</label>
+                <input type="file" id="editStoreImagesInput" accept="image/*" multiple>
+                <div id="editStoreImagePreview" class="store-image-preview"></div>
+            </div>
+            <label class="edit-status-label">
+                <input type="checkbox" id="editStoreStatus">
+                営業中として表示する
+            </label>
+            <button class="submit-btn" onclick="saveEditedStore()">変更を保存する</button>
+        </div>
+    </div>
+</div>
+
+<!-- 新規店舗追加用QRコード -->
+<div id="storeQrModal" class="modal">
+    <div class="modal-content qr-modal-content">
+        <button class="close-btn" onclick="closeStoreQrModal()">×</button>
+        <h2>📱 新規店舗追加用QRコード</h2>
+        <p class="qr-description">スマートフォンで読み取ると、管理者ログイン後に新規店舗の登録フォームが開きます。</p>
+        <div id="publicUrlSetup" class="public-url-setup">
+            <label for="publicAppUrlInput">スマホで開ける公開URL</label>
+            <div class="qr-url-row">
+                <input id="publicAppUrlInput" type="url" placeholder="https://username.github.io/restaurant-search/">
+                <button type="button" class="qr-copy-btn" onclick="generateStoreQrFromPublicUrl()">QRを作成</button>
+            </div>
+        </div>
+        <div id="storeQrCode" class="qr-code"></div>
+        <div class="qr-url-row">
+            <input id="storeQrUrl" type="text" readonly aria-label="QRコードのURL">
+            <button type="button" class="qr-copy-btn" onclick="copyStoreQrUrl()">URLをコピー</button>
+        </div>
+        <button type="button" class="submit-btn qr-download-btn" onclick="downloadStoreQrCode()">QR画像をダウンロード</button>
+    </div>
+</div>
+
+<!-- 営業開始用QRコード -->
+<div id="storeStartQrModal" class="modal">
+    <div class="modal-content qr-modal-content">
+        <button class="close-btn" onclick="closeStoreStartQrModal()">×</button>
+        <h2>🟢 営業開始用QRコード</h2>
+        <p id="storeStartQrDescription" class="qr-description"></p>
+        <div id="storeStartQrCode" class="qr-code"></div>
+        <div class="qr-url-row">
+            <input id="storeStartQrUrl" type="text" readonly aria-label="営業開始用QRコードのURL">
+            <button type="button" class="qr-copy-btn" onclick="copyStoreStartQrUrl()">URLをコピー</button>
+        </div>
+        <button type="button" class="submit-btn qr-download-btn" onclick="downloadStoreStartQrCode()">QR画像をダウンロード</button>
+    </div>
+</div>
+
+
+<!-- 店舗詳細モーダル -->
+<div id="restaurantModal" class="modal">
+    <div class="modal-content">
+        <button class="close-btn" onclick="closeModal()">×</button>
+        <div id="modalContent"></div>
+    </div>
+</div>
+
+<!-- QR読み込み後の営業開始確認 -->
+<div id="startBusinessModal" class="modal">
+    <div class="modal-content start-business-content">
+        <button class="close-btn" onclick="closeStartBusinessModal()">×</button>
+        <p class="start-business-kicker">QRチェックイン</p>
+        <h2 id="startBusinessTitle">営業を開始しますか？</h2>
+        <p id="startBusinessDescription"></p>
+        <button type="button" class="start-business-button" onclick="confirmStartBusiness()">🟢 営業開始</button>
+    </div>
+</div>
+
+
+<!-- ログインモーダル -->
+<div id="loginModal" class="modal">
+    <div class="modal-content">
+        <button class="close-btn" onclick="closeLoginModal()">×</button>
+        <h2>🔑 ログイン</h2>
+        <div class="login-form">
+            <input type="text" id="loginId" placeholder="ログインID">
+            <input type="password" id="loginPw" placeholder="パスワード">
+            <button class="submit-btn" onclick="login()">ログイン</button>
+        </div>
+        <p style="font-size: 12px; color: #888; margin-top: 15px;">
+        </p>
+    </div>
+</div>
+
+
+<!-- 新規店舗追加モーダル（サイト管理者専用） -->
+<div id="addStoreModal" class="modal">
+    <div class="modal-content" style="max-width: 600px;">
+        <button class="close-btn" onclick="closeAddStoreModal()">×</button>
+        <h2>➕ 新規店舗の追加</h2>
+        <p style="font-size: 12px; color: #2563eb; margin-bottom: 8px;">
+            💡 以下の地図をクリックするか、住所・現在地から位置を設定できます。
+        </p>
+
+        <!-- モーダル用マップ -->
+        <div id="modalMap" style="width: 100%; height: 200px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #ccc;"></div>
+
+        <div class="add-store-form">
+            <input type="text" id="newStoreName" placeholder="店舗名（例: 神田ラーメン）">
+            
+            <input type="text" id="newStoreTags" placeholder="タグ（カンマ区切り例: #ラーメン, #家系, #深夜営業）">
+
+            <div class="address-input-row">
+                <input type="text" id="newStoreAddress" placeholder="住所（例: 東京都千代田区神田1-1）" style="flex: 1;">
+                <button type="button" class="geo-btn" onclick="getLatLngFromAddress()">📍 住所から取得</button>
+                <button type="button" class="geo-btn current-location-btn" onclick="getCurrentLocationForNewStore()">📍 現在地から取得</button>
+            </div>
+
+            <div style="display: flex; gap: 8px;">
+                <input type="number" step="0.0001" id="newStoreLat" placeholder="緯度">
+                <input type="number" step="0.0001" id="newStoreLng" placeholder="経度">
+            </div>
+
+            <input type="text" id="newStoreDistance" placeholder="徒歩（例: 徒歩3分）">
+            <textarea id="newStoreDesc" placeholder="店舗の説明"></textarea>
+
+            <div class="image-upload-block">
+                <label for="newStoreImagesInput">店舗画像（最大10枚）</label>
+                <input type="file" id="newStoreImagesInput" accept="image/*" multiple>
+                <div id="newStoreImagePreview" class="store-image-preview"></div>
+            </div>
+
+            <hr class="modal-divider">
+            <h3>🔐 店舗用ログイン情報の発行</h3>
+            <input type="text" id="newStoreLoginId" placeholder="店舗用ID（例: store1）">
+            <input type="password" id="newStorePassword" placeholder="店舗用パスワード">
+
+            <button class="submit-btn" onclick="createNewStore()">店舗を登録する</button>
+        </div>
+    </div>
+</div>
+
+<script src="script.js"></script>
+
+</body>
+</html>
