@@ -42,6 +42,9 @@ function safeStorageLoad() {
 
 function getStoreRegistrationErrorMessage(error) {
   const code = error?.code;
+  if (/^Storage upload:/i.test(error?.message || '')) {
+    return `店舗画像のアップロードがSupabase Storageの権限設定で拒否されました。${error.message}`;
+  }
   if (code === '23505') {
     return 'この担当者アカウントには店舗がすでに登録されています。ログアウトして登録先のアカウントを確認してください。';
   }
@@ -298,7 +301,7 @@ async function saveRestaurantToCloud(restaurant, isNew = false, oldImages = isNe
         contentType: 'image/jpeg',
         upsert: false
       });
-      if (error) throw error;
+      if (error) throw new Error(`Storage upload: ${error.message}`);
       newImagePaths.push(path);
       const { data } = supabaseClient.storage.from(IMAGE_BUCKET).getPublicUrl(path);
       uploadedImages.push(data.publicUrl);
