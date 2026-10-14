@@ -1,6 +1,7 @@
 const STORAGE_KEY = 'restaurantData';
 const LEGACY_PLACEHOLDER_IMAGE = 'https://images.unsplash.com/photo-1559339352-11d035aa65de?auto=format&fit=crop&w=800&q=80';
 const IMAGE_BUCKET = 'restaurant-images';
+const MAX_STORE_IMAGE_SIZE = 5 * 1024 * 1024;
 
 let restaurants = [];
 let legacyRestaurants = [];
@@ -106,11 +107,11 @@ function compressStoreImage(file) {
             canvas.height = Math.max(1, Math.round(image.height * scale));
             context.drawImage(image, 0, 0, canvas.width, canvas.height);
             compressedBlob = await encode(Math.max(0.48, 0.76 - attempt * 0.06));
-            if (compressedBlob.size <= 900 * 1024) break;
+            if (compressedBlob.size <= MAX_STORE_IMAGE_SIZE) break;
             maxDimension = Math.round(maxDimension * 0.82);
           }
-          if (!compressedBlob || compressedBlob.size > 1200 * 1024) {
-            throw new Error('写真を十分に小さくできませんでした。画像を1枚ずつ選ぶか、別の写真をお試しください。');
+          if (!compressedBlob || compressedBlob.size > MAX_STORE_IMAGE_SIZE) {
+            throw new Error('写真を5MB以下に圧縮できませんでした。別の写真をお試しください。');
           }
           const compressedReader = new FileReader();
           compressedReader.onerror = () => reject(compressedReader.error || new Error('圧縮した画像を読み込めませんでした。'));
