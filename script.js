@@ -15,6 +15,7 @@ let storeFormMode = 'create';
 let storeFormImages = [];
 let storeImagesLoading = false;
 let storeSaveInProgress = false;
+let storeStatusSaveInProgress = false;
 let pendingStoreRegistration = false;
 let emergencyQrRequestHandled = false;
 let map;
@@ -328,7 +329,7 @@ async function refreshAuthState(session) {
 }
 
 function updateAuthenticatedControls() {
-  const moderatorOnlyIds = ['exportDataBtn', 'importDataBtn', 'clearDataBtn'];
+  const moderatorOnlyIds = ['clearDataBtn'];
   moderatorOnlyIds.forEach((id) => {
     const button = document.getElementById(id);
     if (button) button.style.display = isSiteModerator ? 'inline-flex' : 'none';
@@ -594,24 +595,36 @@ function renderStoreManagerPanel() {
   }
 
   panel.hidden = false;
+  panel.setAttribute('aria-label', `${restaurant?.name || '店舗'}の運営者専用管理画面`);
   if (!restaurant) {
     panel.innerHTML = `
-      <h2>店舗担当者アカウント</h2>
+      <p class="store-dashboard-kicker">店舗運営者専用管理画面</p>
+      <h2>店舗の登録</h2>
       <p>ログイン中のアカウントに店舗がまだ登録されていません。</p>
       <button type="button" class="edit-own-store-btn" data-action="create-own-store">➕ 自分のお店を登録</button>
     `;
     return;
   }
+  const openNow = isCurrentlyOpen(restaurant);
+  const statusText = restaurant.emergencyClosed
+    ? '臨時休業中'
+    : openNow ? '営業中' : '営業時間外';
   panel.innerHTML = `
-    <h2>${escapeHtml(restaurant.name)} 店舗管理</h2>
+    <p class="store-dashboard-kicker">店舗運営者専用管理画面</p>
+    <h2>${escapeHtml(restaurant.name)} の店舗管理</h2>
+    <div class="store-dashboard-summary">
+      <p><strong>現在の状態</strong><span class="${restaurant.emergencyClosed ? 'store-status-emergency' : openNow ? 'store-status-open' : 'store-status-closed'}">${restaurant.emergencyClosed ? '🚨 ' : openNow ? '🟢 ' : '🔴 '}${statusText}</span></p>
+      <p><strong>営業時間</strong><span>${escapeHtml(restaurant.openingTime || '未登録')}〜${escapeHtml(restaurant.closingTime || '未登録')}</span></p>
+      <p><strong>住所</strong><span>${escapeHtml(restaurant.address || '未登録')}</span></p>
+    </div>
     <p>${restaurant.emergencyClosed
-      ? '臨時休業中です。再開するまで「営業中のお店」には表示されません。'
-      : `営業時間 ${escapeHtml(restaurant.openingTime)}〜${escapeHtml(restaurant.closingTime)} に営業中として表示されます。緊急時は下のボタンを押してください。`}</p>
+      ? '臨時休業中です。「営業を再開する」を押すと、営業時間内にお店一覧と地図へ再表示されます。'
+      : '緊急時は臨時休業に切り替えてください。営業再開時は「営業を再開する」を押してください。'}</p>
     <div class="store-manager-actions">
-      <button type="button" class="edit-own-store-btn" data-action="edit-own-store">✏️ 店舗情報の編集ページ</button>
+      <button type="button" class="edit-own-store-btn" data-action="edit-own-store">✏️ 店舗情報を編集</button>
       <button type="button" class="qr-button" data-action="emergency-qr" data-id="${escapeHtml(restaurant.id)}">📱 臨時休業QRを作成</button>
     </div>
-    <button type="button" class="${restaurant.emergencyClosed ? 'resume-business-btn' : 'emergency-close-btn'}" data-action="toggle-emergency-closure">
+    <button type="button" class="${restaurant.emergencyClosed ? 'resume-business-btn' : 'emergency-close-btn'}" data-action="toggle-emergency-closure" ${storeStatusSaveInProgress ? 'disabled' : ''}>
       ${restaurant.emergencyClosed ? '🟢 営業を再開する' : '🚨 緊急のため臨時休業にする'}
     </button>
   `;
@@ -646,6 +659,7 @@ function getAppUrl(value = '') {
 }
 
 async function toggleEmergencyClosure() {
+  if (storeStatusSaveInProgress) return;
   const restaurant = restaurants.find((item) => item.id === loggedInStoreId);
   if (!restaurant) {
     alert('ログイン中の店舗を確認できません。いったんログアウトして再度ログインしてください。');
@@ -658,24 +672,33 @@ async function toggleEmergencyClosure() {
     : '営業を再開しますか？登録された営業時間内であれば、営業中のお店に再表示されます。';
   if (!confirm(message)) return;
 
-  const previousValue = restaurant.emergencyClosed;
-  restaurant.emergencyClosed = closing;
+  storeStatusSaveInProgress = true;
+  renderStoreManagerPanel();
   try {
-    const { error } = await supabaseClient
+    const { data, error } = await supabaseClient
       .from('restaurants')
       .update({ emergency_closed: closing })
-      .eq('id', restaurant.id);
+      .eq('id', restaurant.id)
+      .select('id')
+      .single();
     if (error) throw error;
+    if (!data) throw new Error('店舗の営業状態を更新できませんでした。');
   } catch (error) {
-    restaurant.emergencyClosed = previousValue;
     handleCloudError(error);
-    alert('営業状態を共有データベースに保存できませんでした。');
+    alert('営業状態を保存できませんでした。店舗アカウントの権限と通信状態を確認してください。');
+    storeStatusSaveInProgress = false;
+    renderStoreManagerPanel();
     return;
   }
-  renderStoreManagerPanel();
-  searchRestaurants();
-  renderMapMarkers();
-  renderAdminList();
+  try {
+    await loadRestaurants();
+  } catch (error) {
+    handleCloudError(error);
+    alert('営業状態は保存されましたが、画面の更新に失敗しました。再接続してください。');
+  } finally {
+    storeStatusSaveInProgress = false;
+    renderStoreManagerPanel();
+  }
 }
 
 function searchRestaurants() {
@@ -1621,78 +1644,6 @@ function normalizeRestaurantRecord(record) {
   };
 }
 
-function exportRestaurantsAsText() {
-  const exportableRestaurants = restaurants.map((restaurant) => {
-    const { ownerId, ...publicFields } = restaurant;
-    return publicFields;
-  });
-  const payload = JSON.stringify(exportableRestaurants, null, 2);
-  const blob = new Blob([payload], { type: 'text/plain;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = 'restaurant-data.txt';
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-}
-
-function triggerImportRestaurantText() {
-  const input = document.getElementById('importRestaurantFile');
-  if (input) input.click();
-}
-
-function importRestaurantTextFromFile(file) {
-  if (!file) return;
-
-  const reader = new FileReader();
-  reader.onload = async () => {
-    try {
-      const parsed = JSON.parse(String(reader.result));
-      const nextRestaurants = Array.isArray(parsed) ? parsed.map(normalizeRestaurantRecord).filter(Boolean) : [];
-
-      if (!nextRestaurants.length && parsed && typeof parsed === 'object') {
-        alert('データ形式が不正です。JSON配列形式で保存してください。');
-        return;
-      }
-
-      if (!isSiteModerator) {
-        alert('店舗データの一括読み込みはサイト管理者のみ実行できます。');
-        return;
-      }
-      if (restaurants.length) {
-        alert('安全のため、一括読み込みは共有データベースに店舗がない場合のみ実行できます。');
-        return;
-      }
-      for (const restaurant of nextRestaurants) {
-        const source = parsed.find((item) => item.id === restaurant.id) || {};
-        restaurant.ownerId = null;
-        restaurant.reviews = [];
-        restaurant.images = await saveRestaurantToCloud(restaurant, true);
-        for (const [index, review] of (Array.isArray(source.reviews) ? source.reviews : []).entries()) {
-          const details = getReviewDetails(review, index);
-          if (!details.comment.trim()) continue;
-          const { error } = await supabaseClient.from('reviews').insert({
-            restaurant_id: restaurant.id,
-            author: details.author.slice(0, 40) || 'ゲスト',
-            rating: details.rating,
-            comment: details.comment.slice(0, 1000)
-          });
-          if (error) throw error;
-        }
-      }
-      await loadRestaurants();
-      alert('店舗データを共有データベースに読み込みました。');
-    } catch (error) {
-      console.error(error);
-      handleCloudError(error);
-      alert('データの読み込みに失敗しました。JSON形式とデータベース設定を確認してください。');
-    }
-  };
-  reader.readAsText(file, 'utf-8');
-}
-
 async function deleteStore(restaurantId) {
   if (!isSiteModerator) {
     alert('店舗を削除するにはサイト管理者としてログインしてください。');
@@ -1904,8 +1855,6 @@ function bindEvents() {
   document.getElementById('closeLoginModal')?.addEventListener('click', closeLoginModal);
   document.getElementById('logoutButton')?.addEventListener('click', logout);
   document.getElementById('siteAdminAddBtn')?.addEventListener('click', openAddStoreModal);
-  document.getElementById('exportDataBtn')?.addEventListener('click', exportRestaurantsAsText);
-  document.getElementById('importDataBtn')?.addEventListener('click', triggerImportRestaurantText);
   document.getElementById('closeAddStoreModal')?.addEventListener('click', closeAddStoreModal);
   document.getElementById('newStoreImagesInput')?.addEventListener('change', (event) => {
     addStoreImagesFromInput(event.target);
@@ -1917,11 +1866,6 @@ function bindEvents() {
       storeFormImages.splice(Number(button.dataset.imageIndex), 1);
       renderStoreImagePreview(previewId);
     });
-  });
-  document.getElementById('importRestaurantFile')?.addEventListener('change', (event) => {
-    const file = event.target.files?.[0];
-    if (file) importRestaurantTextFromFile(file);
-    event.target.value = '';
   });
   document.getElementById('restaurantList')?.addEventListener('click', (event) => {
     const button = event.target.closest('button[data-action]');

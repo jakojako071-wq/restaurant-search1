@@ -101,15 +101,12 @@
                 <button id="storeQrBtn" class="qr-button" style="display: none;" onclick="openStoreQrModal()">📱 店舗追加QR</button>
                 <button id="siteAdminAddBtn" class="add-store-btn" style="display: none;" onclick="openAddStoreModal()">➕ 新規店舗を追加</button>
                 <button id="migrateLegacyDataBtn" class="add-store-btn" style="display: none;" onclick="migrateLegacyRestaurants()">📤 この端末のデータを共有</button>
-                <button id="exportDataBtn" class="add-store-btn" style="display: none;" onclick="exportRestaurantsAsText()">📤 テキスト保存</button>
-                <button id="importDataBtn" class="add-store-btn" style="display: none;" onclick="triggerImportRestaurantText()">📥 テキスト読込</button>
                 <button id="clearDataBtn" class="logout-btn" style="display: none; background-color: #ef4444;" onclick="clearAllData()">🗑️ 全データ初期化</button>
                 <button class="logout-btn" onclick="logout()">ログアウト</button>
             </div>
         </div>
 
-        <input id="importRestaurantFile" type="file" accept=".txt,.json,text/plain" hidden>
-        <section id="storeManagerPanel" class="store-manager-panel" hidden></section>
+        <section id="storeManagerPanel" class="store-manager-panel store-operator-dashboard" aria-label="店舗運営者専用管理画面" hidden></section>
         <div id="adminRestaurantList" class="admin-list"></div>
     </div>
 </div>

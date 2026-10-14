@@ -532,6 +532,41 @@ main {
     font-size: 24px;
 }
 
+.store-dashboard-kicker {
+    margin: 0 0 6px;
+    color: #9a3412;
+    font-size: 13px !important;
+    font-weight: 800;
+}
+
+.store-dashboard-summary {
+    display: grid;
+    gap: 8px;
+    margin: 16px 0;
+    padding: 14px;
+    border-radius: 12px;
+    background: #fff;
+}
+
+.store-dashboard-summary p {
+    display: grid;
+    grid-template-columns: minmax(95px, 0.35fr) 1fr;
+    gap: 12px;
+    margin: 0;
+    font-size: 16px;
+}
+
+.store-status-open {
+    color: #047857;
+    font-weight: 800;
+}
+
+.store-status-closed,
+.store-status-emergency {
+    color: #b91c1c;
+    font-weight: 800;
+}
+
 .store-manager-panel p {
     font-size: 18px;
     line-height: 1.6;
@@ -585,6 +620,12 @@ main {
 
 .resume-business-btn:hover {
     background: #065f46;
+}
+
+.emergency-close-btn:disabled,
+.resume-business-btn:disabled {
+    opacity: 0.65;
+    cursor: wait;
 }
 
 .admin-subtitle {
@@ -843,6 +884,12 @@ main {
 
     .store-manager-panel p {
         font-size: 16px;
+    }
+
+    .store-dashboard-summary p {
+        grid-template-columns: 1fr;
+        gap: 2px;
+        font-size: 15px;
     }
 
     .emergency-close-btn,
