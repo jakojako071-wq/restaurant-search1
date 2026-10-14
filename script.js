@@ -39,6 +39,20 @@ function safeStorageLoad() {
   }
 }
 
+function getStoreRegistrationErrorMessage(error) {
+  const code = error?.code;
+  if (code === '23505') {
+    return 'この担当者アカウントには店舗がすでに登録されています。ログアウトして登録先のアカウントを確認してください。';
+  }
+  if (code === '42501' || /row-level security|permission denied/i.test(error?.message || '')) {
+    return 'データベースの登録権限が不足しています。Supabase SQL Editorで最新のsupabase-schema.sqlを実行し、再度お試しください。';
+  }
+  if (/storage|bucket|object/i.test(`${error?.message || ''} ${error?.details || ''}`)) {
+    return '店舗画像を保存できませんでした。画像を外して登録を試すか、Supabaseの画像ストレージ設定を確認してください。';
+  }
+  return `店舗登録に失敗しました。${error?.message || '通信状態とSupabaseの設定を確認してください。'}`;
+}
+
 function getRestaurantImages(restaurant) {
   const images = Array.isArray(restaurant.images) ? restaurant.images : [];
   const legacyImage = typeof restaurant.image === 'string' ? [restaurant.image] : [];
@@ -69,20 +83,42 @@ function compressStoreImage(file) {
     reader.onerror = () => reject(reader.error || new Error('画像ファイルを読み込めませんでした。'));
     reader.onload = () => {
       const image = new Image();
-      image.onerror = () => reject(new Error('画像ファイルを開けませんでした。'));
-      image.onload = () => {
-        const maxDimension = 1280;
-        const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+      image.onerror = () => reject(new Error('画像形式を読み込めませんでした。JPEGまたはPNGに変換してからお試しください。'));
+      image.onload = async () => {
+        let maxDimension = 1280;
         const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, Math.round(image.width * scale));
-        canvas.height = Math.max(1, Math.round(image.height * scale));
         const context = canvas.getContext('2d');
         if (!context) {
           reject(new Error('画像を処理できませんでした。'));
           return;
         }
-        context.drawImage(image, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/jpeg', 0.78));
+        const encode = (quality) => new Promise((resolveBlob, rejectBlob) => {
+          canvas.toBlob((blob) => {
+            if (blob) resolveBlob(blob);
+            else rejectBlob(new Error('画像をJPEGに変換できませんでした。'));
+          }, 'image/jpeg', quality);
+        });
+        try {
+          let compressedBlob;
+          for (let attempt = 0; attempt < 6; attempt += 1) {
+            const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+            canvas.width = Math.max(1, Math.round(image.width * scale));
+            canvas.height = Math.max(1, Math.round(image.height * scale));
+            context.drawImage(image, 0, 0, canvas.width, canvas.height);
+            compressedBlob = await encode(Math.max(0.48, 0.76 - attempt * 0.06));
+            if (compressedBlob.size <= 900 * 1024) break;
+            maxDimension = Math.round(maxDimension * 0.82);
+          }
+          if (!compressedBlob || compressedBlob.size > 1200 * 1024) {
+            throw new Error('写真を十分に小さくできませんでした。画像を1枚ずつ選ぶか、別の写真をお試しください。');
+          }
+          const compressedReader = new FileReader();
+          compressedReader.onerror = () => reject(compressedReader.error || new Error('圧縮した画像を読み込めませんでした。'));
+          compressedReader.onload = () => resolve(String(compressedReader.result));
+          compressedReader.readAsDataURL(compressedBlob);
+        } catch (error) {
+          reject(error);
+        }
       };
       image.src = String(reader.result);
     };
@@ -111,12 +147,15 @@ async function addStoreImagesFromInput(input) {
   input.disabled = true;
   renderStoreImagePreview(previewId);
   try {
-    const encodedImages = await Promise.all(files.map(compressStoreImage));
+    const encodedImages = [];
+    for (const file of files) {
+      encodedImages.push(await compressStoreImage(file));
+    }
     storeFormImages = [...storeFormImages, ...encodedImages];
     renderStoreImagePreview(previewId);
   } catch (error) {
     console.error('店舗画像の処理に失敗しました。', error);
-    alert('画像を準備できませんでした。別の画像を選んでもう一度お試しください。');
+    alert(error.message || '画像を準備できませんでした。別の画像を選んでもう一度お試しください。');
   } finally {
     storeImagesLoading = false;
     if (saveButton) saveButton.disabled = false;
@@ -264,14 +303,16 @@ async function saveRestaurantToCloud(restaurant, isNew = false, oldImages = isNe
       uploadedImages.push(data.publicUrl);
     }
 
-    const restaurantRow = getRestaurantRow(restaurant, uploadedImages);
-    delete restaurantRow.id;
-    delete restaurantRow.owner_id;
-    const { error } = await supabaseClient
-      .from('restaurants')
-      .update(restaurantRow)
-      .eq('id', restaurant.id);
-    if (error) throw error;
+    if (!isNew || uploadedImages.length) {
+      const restaurantRow = getRestaurantRow(restaurant, uploadedImages);
+      delete restaurantRow.id;
+      delete restaurantRow.owner_id;
+      const { error } = await supabaseClient
+        .from('restaurants')
+        .update(restaurantRow)
+        .eq('id', restaurant.id);
+      if (error) throw error;
+    }
 
     const removedPaths = oldImages
       .filter((image) => !uploadedImages.includes(image))
@@ -341,7 +382,14 @@ function updateAuthenticatedControls() {
     if (button) button.style.display = isSiteModerator ? 'inline-flex' : 'none';
   });
   const storeQrButton = document.getElementById('storeQrBtn');
-  if (storeQrButton) storeQrButton.style.display = isSiteModerator ? 'inline-flex' : 'none';
+  if (storeQrButton) storeQrButton.style.display =
+    isSiteModerator && !loggedInStoreId ? 'inline-flex' : 'none';
+  const accountDeleteButton = document.getElementById('accountDeleteBtn');
+  if (accountDeleteButton) accountDeleteButton.style.display = authUser ? 'inline-flex' : 'none';
+  const accountSettingsButton = document.getElementById('accountSettingsBtn');
+  if (accountSettingsButton) accountSettingsButton.style.display = authUser ? 'inline-flex' : 'none';
+  const accountEmail = document.getElementById('loggedInStoreInfo');
+  if (accountEmail) accountEmail.textContent = authUser?.email || 'ログイン中';
   const addButton = document.getElementById('siteAdminAddBtn');
   if (addButton) addButton.style.display = isSiteModerator || (authUser && !loggedInStoreId) ? 'inline-flex' : 'none';
   const buttonLabel = document.getElementById('siteAdminAddBtn');
@@ -430,6 +478,34 @@ function escapeHtml(value) {
     '"': '&quot;',
     "'": '&#39;'
   })[character]);
+}
+
+function renderDescriptionWithLinks(description) {
+  const text = String(description || '');
+  const urlPattern = /https?:\/\/[^\s<>"']+|www\.[^\s<>"']+/gi;
+  let output = '';
+  let lastIndex = 0;
+
+  for (const match of text.matchAll(urlPattern)) {
+    const originalUrl = match[0];
+    const trimmedUrl = originalUrl.replace(/[.,!?;:)\]}。、，．！？；：]+$/u, '');
+    if (!trimmedUrl) continue;
+    const start = match.index;
+    const end = start + trimmedUrl.length;
+    const href = /^www\./i.test(trimmedUrl) ? `https://${trimmedUrl}` : trimmedUrl;
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(href);
+    } catch {
+      continue;
+    }
+    if (!['http:', 'https:'].includes(parsedUrl.protocol)) continue;
+
+    output += escapeHtml(text.slice(lastIndex, start));
+    output += `<a href="${escapeHtml(parsedUrl.toString())}" target="_blank" rel="noopener noreferrer">${escapeHtml(trimmedUrl)}</a>`;
+    lastIndex = end;
+  }
+  return output + escapeHtml(text.slice(lastIndex));
 }
 
 function getReviewDetails(review, index) {
@@ -934,6 +1010,12 @@ function openRestaurantDetail(restaurantId) {
       <p><strong>予算:</strong> ${escapeHtml(selectedRestaurant.budget || '未設定')}</p>
       <p><strong>営業時間:</strong> ${escapeHtml(selectedRestaurant.openingTime || '未登録')}〜${escapeHtml(selectedRestaurant.closingTime || '未登録')}</p>
       <p><strong>評価:</strong> ${averageRating === null ? '評価なし' : `${averageRating.toFixed(1)} / 5.0`}</p>
+      ${selectedRestaurant.description?.trim() ? `
+        <section class="restaurant-description">
+          <h3>お店の紹介</h3>
+          <p>${renderDescriptionWithLinks(selectedRestaurant.description)}</p>
+        </section>
+      ` : ''}
       <div class="route-guide">
         <h3>ルート案内</h3>
         <p>現在地から店舗までの徒歩ルートを地図で確認できます。</p>
@@ -1065,6 +1147,194 @@ function openLoginModal() {
 function closeLoginModal() {
   const modal = document.getElementById('loginModal');
   if (modal) modal.classList.remove('show');
+}
+
+function openAccountSettings() {
+  if (!authUser) {
+    alert('アカウント設定にはログインが必要です。');
+    return;
+  }
+  const email = authUser.email || '';
+  const currentEmail = document.getElementById('currentAccountEmail');
+  const newEmail = document.getElementById('accountNewEmail');
+  const password = document.getElementById('accountNewPassword');
+  const passwordConfirm = document.getElementById('accountNewPasswordConfirm');
+  const status = document.getElementById('accountSettingsStatus');
+  if (currentEmail) currentEmail.textContent = email;
+  if (newEmail) newEmail.value = '';
+  if (password) password.value = '';
+  if (passwordConfirm) passwordConfirm.value = '';
+  if (status) {
+    status.textContent = '';
+    status.classList.remove('is-error', 'is-success');
+  }
+  document.getElementById('accountSettingsModal')?.classList.add('show');
+  newEmail?.focus();
+}
+
+function closeAccountSettings() {
+  document.getElementById('accountSettingsModal')?.classList.remove('show');
+}
+
+async function saveAccountSettings(event) {
+  event.preventDefault();
+  if (!authUser || !supabaseClient) {
+    alert('アカウント設定にはログインと共有データベースへの接続が必要です。');
+    return;
+  }
+  const email = document.getElementById('accountNewEmail')?.value.trim() || '';
+  const password = document.getElementById('accountNewPassword')?.value || '';
+  const passwordConfirm = document.getElementById('accountNewPasswordConfirm')?.value || '';
+  const emailChanged = Boolean(email && email.toLowerCase() !== (authUser.email || '').toLowerCase());
+  if (email && !emailChanged) {
+    alert('現在と異なるメールアドレスを入力してください。');
+    return;
+  }
+  if (password && password.length < 8) {
+    alert('新しいパスワードは8文字以上にしてください。');
+    return;
+  }
+  if (password !== passwordConfirm) {
+    alert('新しいパスワードが一致しません。');
+    return;
+  }
+  if (!emailChanged && !password) {
+    alert('変更するメールアドレスかパスワードを入力してください。');
+    return;
+  }
+
+  const updates = {};
+  if (emailChanged) updates.email = email;
+  if (password) updates.password = password;
+  const button = document.getElementById('saveAccountSettingsBtn');
+  const status = document.getElementById('accountSettingsStatus');
+  if (button) {
+    button.disabled = true;
+    button.textContent = '保存しています…';
+  }
+  if (status) {
+    status.textContent = '';
+    status.classList.remove('is-error', 'is-success');
+  }
+  try {
+    const { data, error } = await supabaseClient.auth.updateUser(updates);
+    if (error) throw error;
+    authUser = data.user || authUser;
+    updateAuthenticatedControls();
+    if (status) {
+      status.textContent = emailChanged
+        ? '変更を保存しました。メールアドレスは確認メールの操作後に切り替わります。'
+        : 'アカウント情報を更新しました。';
+      status.classList.add('is-success');
+    }
+    document.getElementById('accountNewEmail').value = '';
+    document.getElementById('accountNewPassword').value = '';
+    document.getElementById('accountNewPasswordConfirm').value = '';
+  } catch (error) {
+    console.error('アカウント情報の更新に失敗しました。', error);
+    if (status) {
+      status.textContent = `保存できませんでした: ${error.message || '通信状態を確認してください。'}`;
+      status.classList.add('is-error');
+    } else {
+      alert(`アカウント情報を保存できませんでした。${error.message || ''}`);
+    }
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = '変更を保存する';
+    }
+  }
+}
+
+function openAccountDeletionModal() {
+  if (!authUser) {
+    alert('アカウント削除にはログインが必要です。');
+    return;
+  }
+  const restaurant = restaurants.find((item) => item.id === loggedInStoreId);
+  const storeChoices = document.getElementById('accountStoreChoices');
+  const noStoreMessage = document.getElementById('accountNoStoreMessage');
+  if (storeChoices) storeChoices.hidden = !restaurant;
+  if (noStoreMessage) noStoreMessage.hidden = Boolean(restaurant);
+  const storeName = document.getElementById('accountStoreName');
+  if (storeName) storeName.textContent = restaurant?.name || '';
+  const keepStoreOption = document.querySelector('input[name="accountStoreDeletion"][value="keep"]');
+  if (keepStoreOption) keepStoreOption.checked = true;
+  document.getElementById('accountDeletionModal')?.classList.add('show');
+}
+
+function closeAccountDeletionModal() {
+  document.getElementById('accountDeletionModal')?.classList.remove('show');
+}
+
+async function deleteAccount() {
+  if (!authUser || !supabaseClient) {
+    alert('アカウント削除にはログインと共有データベースへの接続が必要です。');
+    return;
+  }
+  if (storeSaveInProgress) {
+    alert('店舗情報を保存中です。保存が終わってから、もう一度お試しください。');
+    return;
+  }
+
+  const restaurant = restaurants.find((item) => item.id === loggedInStoreId);
+  const deleteRestaurant = restaurant
+    ? document.querySelector('input[name="accountStoreDeletion"]:checked')?.value === 'delete'
+    : false;
+  const confirmation = deleteRestaurant
+    ? `アカウントと「${restaurant.name}」の店舗情報・口コミ・画像を削除します。この操作は取り消せません。続けますか？`
+    : 'アカウントを削除します。店舗がある場合は所有者なしで残ります。この操作は取り消せません。続けますか？';
+  if (!confirm(confirmation)) return;
+
+  const button = document.getElementById('confirmAccountDeletionBtn');
+  if (button) {
+    button.disabled = true;
+    button.textContent = '削除しています…';
+  }
+  let restaurantImagesRemoved = false;
+  try {
+    if (deleteRestaurant && restaurant) {
+      const imagePaths = getRestaurantImages(restaurant)
+        .map(getRestaurantStoragePath)
+        .filter(Boolean);
+      if (imagePaths.length) {
+        const { error: imageError } = await supabaseClient.storage.from(IMAGE_BUCKET).remove(imagePaths);
+        if (imageError) {
+          throw new Error(`店舗画像を削除できませんでした。アカウントは削除されていません。${imageError.message || ''}`);
+        }
+        restaurantImagesRemoved = true;
+      }
+    }
+
+    const { data, error } = await supabaseClient.rpc('delete_my_account', {
+      p_delete_restaurant: deleteRestaurant
+    });
+    if (error) throw error;
+    if (!data) throw new Error('アカウントを削除できませんでした。データベースの設定を確認してください。');
+
+    closeAccountDeletionModal();
+    alert(deleteRestaurant
+      ? 'アカウントと店舗情報を削除しました。'
+      : 'アカウントを削除しました。');
+    try {
+      const { error: signOutError } = await supabaseClient.auth.signOut({ scope: 'local' });
+      if (signOutError) console.warn('削除済みアカウントの端末内セッションを終了できませんでした。', signOutError);
+    } catch (signOutError) {
+      console.warn('削除済みアカウントの端末内セッションを終了できませんでした。', signOutError);
+    }
+    window.location.reload();
+  } catch (error) {
+    handleCloudError(error);
+    const partialActionMessage = restaurantImagesRemoved
+      ? '店舗画像は削除されましたが、アカウントと店舗情報は残っています。設定を確認して、もう一度お試しください。'
+      : '';
+    alert(`${partialActionMessage || 'アカウントを削除できませんでした。'}${error.message || '通信状態とSupabaseの設定を確認してください。'}`);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = 'アカウントを削除する';
+    }
+  }
 }
 
 function openStoreQrModal() {
@@ -1662,7 +1932,7 @@ async function createNewStore() {
     restaurant.images = await saveRestaurantToCloud(restaurant, true);
   } catch (error) {
     handleCloudError(error);
-    alert('店舗を登録できませんでした。入力内容と画像の容量を確認して、もう一度お試しください。');
+    alert(getStoreRegistrationErrorMessage(error));
     return;
   } finally {
     storeSaveInProgress = false;
@@ -1972,6 +2242,18 @@ function bindEvents() {
   document.getElementById('categoryFilter')?.addEventListener('change', searchRestaurants);
   document.getElementById('closeLoginModal')?.addEventListener('click', closeLoginModal);
   document.getElementById('logoutButton')?.addEventListener('click', logout);
+  document.getElementById('accountSettingsForm')?.addEventListener('submit', saveAccountSettings);
+  document.querySelectorAll('.modal').forEach((modal) => {
+    modal.addEventListener('click', (event) => {
+      if (event.target !== modal) return;
+      modal.querySelector('.close-btn')?.click();
+    });
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    const openModals = Array.from(document.querySelectorAll('.modal.show'));
+    openModals[openModals.length - 1]?.querySelector('.close-btn')?.click();
+  });
   document.getElementById('siteAdminAddBtn')?.addEventListener('click', openAddStoreModal);
   document.getElementById('closeAddStoreModal')?.addEventListener('click', closeAddStoreModal);
   document.getElementById('newStoreImagesInput')?.addEventListener('change', (event) => {

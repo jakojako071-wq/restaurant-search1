@@ -98,17 +98,70 @@
                 <h1 id="adminTitle">🏪 管理画面</h1>
                 <p class="admin-subtitle" id="loggedInStoreInfo">ログイン中</p>
             </div>
-            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <div class="admin-header-actions">
                 <button id="storeQrBtn" class="qr-button" style="display: none;" onclick="openStoreQrModal()">📱 店舗追加QR</button>
                 <button id="siteAdminAddBtn" class="add-store-btn" style="display: none;" onclick="openAddStoreModal()">➕ 新規店舗を追加</button>
                 <button id="migrateLegacyDataBtn" class="add-store-btn" style="display: none;" onclick="migrateLegacyRestaurants()">📤 この端末のデータを共有</button>
                 <button id="clearDataBtn" class="logout-btn" style="display: none; background-color: #ef4444;" onclick="clearAllData()">🗑️ 全データ初期化</button>
+                <button id="accountSettingsBtn" class="secondary-btn account-settings-btn" style="display: none;" onclick="openAccountSettings()">アカウント設定</button>
+                <button id="accountDeleteBtn" class="danger-btn" style="display: none;" onclick="openAccountDeletionModal()">アカウント削除</button>
                 <button class="logout-btn" onclick="logout()">ログアウト</button>
             </div>
         </div>
 
         <section id="storeManagerPanel" class="store-manager-panel store-operator-dashboard" aria-label="店舗運営者専用管理画面" hidden></section>
         <div id="adminRestaurantList" class="admin-list"></div>
+    </div>
+</div>
+
+<!-- アカウント設定モーダル -->
+<div id="accountSettingsModal" class="modal">
+    <div class="modal-content account-settings-content">
+        <button class="close-btn" type="button" onclick="closeAccountSettings()" aria-label="閉じる">×</button>
+        <p class="account-settings-kicker">アカウント情報</p>
+        <h2>アカウント設定</h2>
+        <p class="account-current-email">現在のメールアドレス：<strong id="currentAccountEmail"></strong></p>
+        <form id="accountSettingsForm" class="account-settings-form">
+            <label for="accountNewEmail">新しいメールアドレス</label>
+            <input id="accountNewEmail" name="email" type="email" autocomplete="email" placeholder="変更する場合のみ入力">
+            <p class="account-settings-hint">メールアドレスを変更すると、新しいアドレスに確認メールが届く場合があります。</p>
+            <label for="accountNewPassword">新しいパスワード</label>
+            <input id="accountNewPassword" name="password" type="password" autocomplete="new-password" minlength="8" placeholder="変更する場合のみ入力（8文字以上）">
+            <label for="accountNewPasswordConfirm">新しいパスワード（確認）</label>
+            <input id="accountNewPasswordConfirm" name="passwordConfirm" type="password" autocomplete="new-password" minlength="8" placeholder="新しいパスワードをもう一度入力">
+            <p id="accountSettingsStatus" class="account-settings-status" role="status" aria-live="polite"></p>
+            <div class="account-settings-actions">
+                <button type="button" class="secondary-btn" onclick="closeAccountSettings()">閉じる</button>
+                <button type="submit" id="saveAccountSettingsBtn" class="submit-btn">変更を保存する</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- アカウント削除モーダル -->
+<div id="accountDeletionModal" class="modal">
+    <div class="modal-content account-deletion-content">
+        <button class="close-btn" type="button" onclick="closeAccountDeletionModal()" aria-label="閉じる">×</button>
+        <h2>アカウント削除</h2>
+        <p>削除すると、このアカウントではログインできなくなります。この操作は取り消せません。</p>
+        <div id="accountStoreChoices" class="account-store-choices" hidden>
+            <p><strong id="accountStoreName"></strong>の店舗情報をどうしますか？</p>
+            <label>
+                <input type="radio" name="accountStoreDeletion" value="keep" checked>
+                アカウントだけ削除する（店舗は残す）
+            </label>
+            <p class="account-deletion-note">店舗は所有者なしで残ります。公開中か承認待ちかの状態は変わりません。以後、店舗管理者は編集できません。</p>
+            <label>
+                <input type="radio" name="accountStoreDeletion" value="delete">
+                アカウントと店舗を削除する
+            </label>
+            <p class="account-deletion-note">店舗情報・口コミ・店舗画像も削除されます。</p>
+        </div>
+        <p id="accountNoStoreMessage" hidden>このアカウントに紐づく店舗はありません。</p>
+        <div class="account-deletion-actions">
+            <button type="button" class="secondary-btn" onclick="closeAccountDeletionModal()">キャンセル</button>
+            <button type="button" id="confirmAccountDeletionBtn" class="danger-btn" onclick="deleteAccount()">アカウントを削除する</button>
+        </div>
     </div>
 </div>
 
