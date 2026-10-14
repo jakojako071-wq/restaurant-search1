@@ -663,10 +663,12 @@ function renderAdminList() {
             <strong>${escapeHtml(restaurant.name)}</strong>
             <div>${escapeHtml(restaurant.category || '未分類')} / ${escapeHtml(restaurant.address || '住所未設定')}</div>
             ${restaurant.approved ? '' : '<div class="approval-pending">⏳ 承認待ち</div>'}
+            ${restaurant.approved && restaurant.emergencyClosed ? '<div class="store-status-emergency">🚨 臨時休業中</div>' : ''}
           </div>
           <div class="admin-actions">
             ${restaurant.approved ? '' : `<button type="button" class="submit-btn" data-action="admin-approve" data-id="${escapeHtml(restaurant.id)}">承認して公開</button>`}
             <button type="button" class="secondary-btn" data-action="admin-edit" data-id="${escapeHtml(restaurant.id)}">編集</button>
+            ${restaurant.approved ? `<button type="button" class="secondary-btn" data-action="admin-toggle-emergency-closure" data-id="${escapeHtml(restaurant.id)}" ${storeStatusSaveInProgress ? 'disabled' : ''}>${restaurant.emergencyClosed ? '営業を再開' : '臨時休業にする'}</button>` : ''}
             ${restaurant.approved ? `<button type="button" class="secondary-btn" data-action="admin-emergency-qr" data-id="${escapeHtml(restaurant.id)}">臨時休業QR</button>` : ''}
             <button type="button" class="danger-btn" data-action="admin-delete" data-id="${escapeHtml(restaurant.id)}">${restaurant.approved ? '削除' : '却下・削除'}</button>
           </div>
@@ -762,10 +764,10 @@ function getAppUrl(value = '') {
   return url;
 }
 
-async function toggleEmergencyClosure() {
+async function toggleEmergencyClosure(restaurantId = loggedInStoreId) {
   if (storeStatusSaveInProgress) return;
-  const restaurant = restaurants.find((item) => item.id === loggedInStoreId);
-  if (!restaurant) {
+  const restaurant = restaurants.find((item) => item.id === restaurantId);
+  if (!restaurant || (!isSiteModerator && restaurant.id !== loggedInStoreId)) {
     alert('ログイン中の店舗を確認できません。いったんログアウトして再度ログインしてください。');
     return;
   }
@@ -778,6 +780,7 @@ async function toggleEmergencyClosure() {
 
   storeStatusSaveInProgress = true;
   renderStoreManagerPanel();
+  renderAdminList();
   try {
     const { data, error } = await supabaseClient
       .from('restaurants')
@@ -792,6 +795,7 @@ async function toggleEmergencyClosure() {
     alert('営業状態を保存できませんでした。店舗アカウントの権限と通信状態を確認してください。');
     storeStatusSaveInProgress = false;
     renderStoreManagerPanel();
+    renderAdminList();
     return;
   }
   try {
@@ -802,6 +806,7 @@ async function toggleEmergencyClosure() {
   } finally {
     storeStatusSaveInProgress = false;
     renderStoreManagerPanel();
+    renderAdminList();
   }
 }
 
@@ -2314,6 +2319,7 @@ function bindEvents() {
     const { action, id } = button.dataset;
     if (action === 'admin-approve') approveStore(id);
     if (action === 'admin-edit') editStore(id);
+    if (action === 'admin-toggle-emergency-closure') toggleEmergencyClosure(id);
     if (action === 'admin-emergency-qr') openEmergencyClosureQr(id);
     if (action === 'admin-delete') deleteStore(id);
   });
