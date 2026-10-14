@@ -2171,7 +2171,7 @@ async function saveStoreInformation(restaurantId = loggedInStoreId) {
   } catch (error) {
     restaurants[index] = previousRestaurant;
     handleCloudError(error);
-    alert('店舗情報を保存できませんでした。入力内容と画像の容量を確認してください。');
+    alert(`店舗情報を保存できませんでした。\n${error.message || '入力内容と画像の容量を確認してください。'}`);
     return;
   } finally {
     storeSaveInProgress = false;
