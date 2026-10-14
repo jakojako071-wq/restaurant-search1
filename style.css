@@ -567,6 +567,30 @@ main {
     font-weight: 800;
 }
 
+.approval-pending {
+    color: #92400e;
+    font-size: 17px;
+    font-weight: 800;
+}
+
+.application-button {
+    width: 100%;
+    min-height: 56px;
+    margin-top: 18px;
+    border: 2px solid #0f766e;
+    border-radius: 12px;
+    background: #f0fdfa;
+    color: #115e59;
+    font: inherit;
+    font-size: 19px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.application-button:hover {
+    background: #ccfbf1;
+}
+
 .store-manager-panel p {
     font-size: 18px;
     line-height: 1.6;
@@ -639,6 +663,17 @@ main {
     gap: 15px;
 }
 
+.admin-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px;
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+    background: #fff;
+}
+
 .admin-card {
     background: white;
     padding: 20px;
@@ -659,6 +694,7 @@ main {
 .admin-actions {
     margin-top: 15px;
     display: flex;
+    flex-wrap: wrap;
     gap: 10px;
 }
 
@@ -905,6 +941,11 @@ main {
     }
 
     .admin-actions {
+        flex-direction: column;
+    }
+
+    .admin-item {
+        align-items: stretch;
         flex-direction: column;
     }
 

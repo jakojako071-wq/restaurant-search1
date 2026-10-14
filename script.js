@@ -17,6 +17,7 @@ let storeImagesLoading = false;
 let storeSaveInProgress = false;
 let storeStatusSaveInProgress = false;
 let pendingStoreRegistration = false;
+let registrationQrToken = '';
 let emergencyQrRequestHandled = false;
 let map;
 let markers = [];
@@ -177,6 +178,7 @@ function normalizeRestaurantRow(row) {
   return normalizeRestaurantRecord({
     id: row.id,
     ownerId: row.owner_id,
+    approved: row.approved !== false,
     name: row.name,
     category: row.category,
     tags: row.tags,
@@ -262,9 +264,13 @@ async function saveRestaurantToCloud(restaurant, isNew = false, oldImages = isNe
       uploadedImages.push(data.publicUrl);
     }
 
+    const restaurantRow = getRestaurantRow(restaurant, uploadedImages);
+    delete restaurantRow.id;
+    delete restaurantRow.owner_id;
     const { error } = await supabaseClient
       .from('restaurants')
-      .upsert(getRestaurantRow(restaurant, uploadedImages), { onConflict: 'id' });
+      .update(restaurantRow)
+      .eq('id', restaurant.id);
     if (error) throw error;
 
     const removedPaths = oldImages
@@ -335,7 +341,7 @@ function updateAuthenticatedControls() {
     if (button) button.style.display = isSiteModerator ? 'inline-flex' : 'none';
   });
   const storeQrButton = document.getElementById('storeQrBtn');
-  if (storeQrButton) storeQrButton.style.display = authUser ? 'inline-flex' : 'none';
+  if (storeQrButton) storeQrButton.style.display = isSiteModerator ? 'inline-flex' : 'none';
   const addButton = document.getElementById('siteAdminAddBtn');
   if (addButton) addButton.style.display = isSiteModerator || (authUser && !loggedInStoreId) ? 'inline-flex' : 'none';
   const buttonLabel = document.getElementById('siteAdminAddBtn');
@@ -369,6 +375,10 @@ async function migrateLegacyRestaurants() {
         restaurant.ownerId = null;
         restaurant.reviews = [];
         await saveRestaurantToCloud(restaurant, true);
+        const { error: approvalError } = await supabaseClient.rpc('approve_restaurant', {
+          p_restaurant_id: restaurant.id
+        });
+        if (approvalError) throw approvalError;
         existingIds.add(restaurant.id);
       }
       const { data: savedReviews, error: reviewReadError } = await supabaseClient
@@ -568,15 +578,17 @@ function renderAdminList() {
 
   container.innerHTML = restaurants.length
     ? restaurants.map((restaurant) => `
-        <div class="admin-item" data-id="${restaurant.id}">
+        <div class="admin-item" data-id="${escapeHtml(restaurant.id)}">
           <div>
-            <strong>${restaurant.name}</strong>
-            <div>${restaurant.category || '未分類'} / ${restaurant.address || '住所未設定'}</div>
+            <strong>${escapeHtml(restaurant.name)}</strong>
+            <div>${escapeHtml(restaurant.category || '未分類')} / ${escapeHtml(restaurant.address || '住所未設定')}</div>
+            ${restaurant.approved ? '' : '<div class="approval-pending">⏳ 承認待ち</div>'}
           </div>
           <div class="admin-actions">
-            <button type="button" class="secondary-btn" data-action="admin-edit" data-id="${restaurant.id}">編集</button>
-            <button type="button" class="secondary-btn" data-action="admin-emergency-qr" data-id="${restaurant.id}">臨時休業QR</button>
-            <button type="button" class="danger-btn" data-action="admin-delete" data-id="${restaurant.id}">削除</button>
+            ${restaurant.approved ? '' : `<button type="button" class="submit-btn" data-action="admin-approve" data-id="${escapeHtml(restaurant.id)}">承認して公開</button>`}
+            <button type="button" class="secondary-btn" data-action="admin-edit" data-id="${escapeHtml(restaurant.id)}">編集</button>
+            ${restaurant.approved ? `<button type="button" class="secondary-btn" data-action="admin-emergency-qr" data-id="${escapeHtml(restaurant.id)}">臨時休業QR</button>` : ''}
+            <button type="button" class="danger-btn" data-action="admin-delete" data-id="${escapeHtml(restaurant.id)}">${restaurant.approved ? '削除' : '却下・削除'}</button>
           </div>
         </div>
       `).join('')
@@ -601,7 +613,19 @@ function renderStoreManagerPanel() {
       <p class="store-dashboard-kicker">店舗運営者専用管理画面</p>
       <h2>店舗の登録</h2>
       <p>ログイン中のアカウントに店舗がまだ登録されていません。</p>
-      <button type="button" class="edit-own-store-btn" data-action="create-own-store">➕ 自分のお店を登録</button>
+      <button type="button" class="edit-own-store-btn" data-action="create-own-store">➕ 店舗登録を申請する</button>
+    `;
+    return;
+  }
+  if (!restaurant.approved) {
+    panel.innerHTML = `
+      <p class="store-dashboard-kicker">店舗運営者専用管理画面</p>
+      <h2>${escapeHtml(restaurant.name)} の店舗管理</h2>
+      <p class="approval-pending">⏳ モデレーターの確認待ちです。承認されると店舗一覧と地図に公開されます。</p>
+      <p>審査中も店舗情報を編集できます。</p>
+      <div class="store-manager-actions">
+        <button type="button" class="edit-own-store-btn" data-action="edit-own-store">✏️ 店舗情報を編集</button>
+      </div>
     `;
     return;
   }
@@ -707,6 +731,7 @@ function searchRestaurants() {
   const categoryFilter = document.getElementById('categoryFilter');
   const selectedCategory = categoryFilter ? categoryFilter.value : '';
   const filtered = restaurants.filter((restaurant) => {
+    if (!restaurant.approved) return false;
     const name = (restaurant.name || '').toLowerCase();
     const address = (restaurant.address || '').toLowerCase();
     const tags = (restaurant.tags || '').toLowerCase();
@@ -835,12 +860,12 @@ function clearMarkers() {
 function renderMapMarkers() {
   if (!map) return;
   clearMarkers();
-  if (!restaurants.some((restaurant) => restaurant.id === selectedRestaurantId && isCurrentlyOpen(restaurant))) {
+  if (!restaurants.some((restaurant) => restaurant.id === selectedRestaurantId && restaurant.approved && isCurrentlyOpen(restaurant))) {
     selectedRestaurantId = null;
   }
 
   restaurants.forEach((restaurant) => {
-    if (!isCurrentlyOpen(restaurant) || !hasValidRestaurantLocation(restaurant)) return;
+    if (!restaurant.approved || !isCurrentlyOpen(restaurant) || !hasValidRestaurantLocation(restaurant)) return;
     const selected = restaurant.id === selectedRestaurantId;
     const marker = L.marker([Number(restaurant.lat), Number(restaurant.lng)], {
       icon: createRestaurantMapIcon(restaurant, selected),
@@ -1043,10 +1068,14 @@ function closeLoginModal() {
 }
 
 function openStoreQrModal() {
+  if (!isSiteModerator) {
+    alert('店舗登録QRを発行できるのはモデレーターのみです。');
+    return;
+  }
   const modal = document.getElementById('storeQrModal');
   if (!modal) return;
-  generateStoreQrFromPublicUrl();
   modal.classList.add('show');
+  generateStoreQrFromPublicUrl();
 }
 
 function closeStoreQrModal() {
@@ -1054,18 +1083,33 @@ function closeStoreQrModal() {
   if (modal) modal.classList.remove('show');
 }
 
-function generateStoreQrFromPublicUrl() {
+async function generateStoreQrFromPublicUrl() {
+  if (!isSiteModerator || !supabaseClient || !window.crypto?.subtle) {
+    alert('モデレーターとしてログインし、HTTPSの公開URLから操作してください。');
+    return;
+  }
   const input = document.getElementById('publicAppUrlInput');
   const qrUrl = document.getElementById('storeQrUrl');
   try {
     const url = getAppUrl(input?.value || '');
     url.searchParams.set('action', 'register-store');
+    const randomBytes = crypto.getRandomValues(new Uint8Array(32));
+    const token = Array.from(randomBytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+    const hashBytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+    const tokenHash = Array.from(new Uint8Array(hashBytes), (byte) => byte.toString(16).padStart(2, '0')).join('');
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const { error } = await supabaseClient
+      .from('store_registration_qr_tokens')
+      .insert({ token_hash: tokenHash, expires_at: expiresAt });
+    if (error) throw error;
+    url.hash = new URLSearchParams({ 'registration-token': token }).toString();
     const qrText = url.toString();
     if (qrUrl) qrUrl.value = qrText;
     if (input) input.value = url.origin + url.pathname;
     renderQrCode('storeQrCode', qrText);
   } catch (error) {
-    alert(error.message || '公開URLを確認してください。');
+    handleCloudError(error);
+    alert(error.message || '店舗登録QRを作成できませんでした。SupabaseのSQL設定と公開URLを確認してください。');
   }
 }
 
@@ -1128,18 +1172,43 @@ async function processEmergencyClosureQr() {
   }
 }
 
+function persistPendingStoreRegistration() {
+  try {
+    localStorage.setItem('pendingStoreRegistration', 'true');
+    if (registrationQrToken) {
+      localStorage.setItem('pendingStoreRegistrationToken', registrationQrToken);
+    } else {
+      localStorage.removeItem('pendingStoreRegistrationToken');
+    }
+  } catch (error) {
+    console.warn('店舗登録申請の状態を保存できませんでした。', error);
+  }
+}
+
+function requestStoreApplication() {
+  registrationQrToken = '';
+  pendingStoreRegistration = true;
+  persistPendingStoreRegistration();
+  if (!authUser) {
+    switchView('admin');
+    openLoginModal();
+    return;
+  }
+  processPendingStoreRegistration();
+}
+
 function processPendingStoreRegistration() {
   if (!pendingStoreRegistration) return;
   if (!authUser) {
     switchView('admin');
-    if (!document.getElementById('addStoreModal')?.classList.contains('show')) {
-      openAddStoreModal(true);
-    }
+    openLoginModal();
     return;
   }
-  pendingStoreRegistration = false;
-  localStorage.removeItem('pendingStoreRegistration');
   if (!isSiteModerator && loggedInStoreId) {
+    pendingStoreRegistration = false;
+    localStorage.removeItem('pendingStoreRegistration');
+    localStorage.removeItem('pendingStoreRegistrationToken');
+    registrationQrToken = '';
     closeAddStoreModal();
     switchView('admin');
     alert('このアカウントには登録済みの店舗があります。店舗管理ページから情報を編集してください。');
@@ -1380,11 +1449,12 @@ function initializeModalMap() {
   });
 }
 
-function openAddStoreModal(fromRegistrationQr = false) {
+function openAddStoreModal() {
   const modal = document.getElementById('addStoreModal');
   if (!modal) return;
-  if (!authUser && !fromRegistrationQr) {
+  if (!authUser) {
     alert('店舗情報の登録にはログインが必要です。');
+    openLoginModal();
     return;
   }
   if (!isSiteModerator && loggedInStoreId) {
@@ -1394,15 +1464,17 @@ function openAddStoreModal(fromRegistrationQr = false) {
 
   storeFormMode = 'create';
   const modalTitle = modal.querySelector('h2');
-  if (modalTitle) modalTitle.textContent = isSiteModerator || fromRegistrationQr ? '➕ 新規店舗の追加' : '➕ 自分のお店を登録';
-  modal.querySelector('.registration-intro').innerHTML = !authUser
-    ? '店舗情報を入力してください。保存時に担当者アカウントでログインまたは作成できます。<span>※入力内容はログイン後も保持されます。</span>'
-    : '画面の案内にそって、上から順番に入力してください。<span>※「必須」と書かれた項目は入力が必要です。</span>';
+  if (modalTitle) modalTitle.textContent = isSiteModerator ? '➕ 新規店舗の追加' : '➕ 店舗登録の申請';
+  modal.querySelector('.registration-intro').innerHTML = isSiteModerator
+    ? '画面の案内にそって、上から順番に入力してください。<span>※登録後すぐに公開されます。</span>'
+    : registrationQrToken
+      ? 'モデレーター発行QRからの登録です。必要な情報を入力してください。<span>※登録後すぐに公開されます。</span>'
+      : '必要な情報を入力して申請してください。<span>※モデレーターの承認後に店舗一覧と地図へ公開されます。</span>';
   modal.querySelector('.image-upload-block').hidden = false;
   const saveButton = document.getElementById('createNewStoreBtn');
   if (saveButton) {
     saveButton.onclick = createNewStore;
-    saveButton.textContent = '内容を確認して店舗を登録';
+    saveButton.textContent = isSiteModerator || registrationQrToken ? '内容を確認して店舗を登録' : '店舗登録を申請する';
   }
   [
     'newStoreName', 'newStoreTags', 'newStoreAddress',
@@ -1597,13 +1669,37 @@ async function createNewStore() {
     if (imageInput) imageInput.disabled = false;
     if (saveButton) {
       saveButton.disabled = false;
-      saveButton.textContent = '内容を確認して店舗を登録';
+      saveButton.textContent = isSiteModerator || registrationQrToken ? '内容を確認して店舗を登録' : '店舗登録を申請する';
     }
   }
+  let approved = false;
+  try {
+    if (isSiteModerator) {
+      const { error } = await supabaseClient.rpc('approve_restaurant', { p_restaurant_id: restaurant.id });
+      if (error) throw error;
+      approved = true;
+    } else if (registrationQrToken) {
+      const { data, error } = await supabaseClient.rpc('approve_restaurant_with_qr', {
+        p_token: registrationQrToken,
+        p_restaurant_id: restaurant.id
+      });
+      if (error) throw error;
+      approved = Boolean(data);
+      if (!approved) setCloudStatus('登録QRが期限切れか使用済みのため、店舗は承認待ちになっています。', true);
+    }
+  } catch (error) {
+    handleCloudError(error);
+  }
+  registrationQrToken = '';
+  pendingStoreRegistration = false;
+  localStorage.removeItem('pendingStoreRegistration');
+  localStorage.removeItem('pendingStoreRegistrationToken');
   closeAddStoreModal();
   try {
     await loadRestaurants();
-    alert('店舗を共有データベースに登録しました。');
+    alert(approved
+      ? '店舗を共有データベースに登録・公開しました。'
+      : '店舗登録を申請しました。モデレーターの承認後に公開されます。');
   } catch (error) {
     handleCloudError(error);
     alert('店舗は保存されましたが、一覧の更新に失敗しました。再接続してください。');
@@ -1629,6 +1725,7 @@ function normalizeRestaurantRecord(record) {
     tags,
     address: record.address || '',
     ownerId: record.ownerId || null,
+    approved: record.approved !== false,
     emergencyClosed: Boolean(record.emergencyClosed),
     openingTime: record.openingTime || '',
     closingTime: record.closingTime || '',
@@ -1664,6 +1761,27 @@ async function deleteStore(restaurantId) {
     handleCloudError(error);
     alert('店舗を削除できませんでした。');
     return;
+  }
+  await loadRestaurants();
+}
+
+async function approveStore(restaurantId) {
+  if (!isSiteModerator || !supabaseClient) {
+    alert('店舗申請の承認はモデレーターのみ実行できます。');
+    return;
+  }
+  const restaurant = restaurants.find((item) => item.id === restaurantId);
+  if (!restaurant || restaurant.approved) return;
+  if (!confirm(`${restaurant.name} の店舗登録を承認して公開しますか？`)) return;
+
+  const { data, error } = await supabaseClient.rpc('approve_restaurant', { p_restaurant_id: restaurantId });
+  if (error) {
+    handleCloudError(error);
+    alert('店舗申請を承認できませんでした。');
+    return;
+  }
+  if (!data) {
+    alert('この店舗申請はすでに処理されたか、見つかりません。');
   }
   await loadRestaurants();
 }
@@ -1900,7 +2018,7 @@ function bindEvents() {
     if (button.dataset.action === 'toggle-emergency-closure') toggleEmergencyClosure();
     if (button.dataset.action === 'edit-own-store' && loggedInStoreId) editStore(loggedInStoreId);
     if (button.dataset.action === 'emergency-qr' && button.dataset.id) openEmergencyClosureQr(button.dataset.id);
-    if (button.dataset.action === 'create-own-store') openAddStoreModal();
+    if (button.dataset.action === 'create-own-store') requestStoreApplication();
   });
 
   document.getElementById('adminRestaurantList')?.addEventListener('click', (event) => {
@@ -1908,6 +2026,7 @@ function bindEvents() {
     if (!button) return;
 
     const { action, id } = button.dataset;
+    if (action === 'admin-approve') approveStore(id);
     if (action === 'admin-edit') editStore(id);
     if (action === 'admin-emergency-qr') openEmergencyClosureQr(id);
     if (action === 'admin-delete') deleteStore(id);
@@ -1915,12 +2034,27 @@ function bindEvents() {
 }
 
 function initializeApp() {
-  const registrationRequested = new URLSearchParams(window.location.search).get('action') === 'register-store';
+  const registrationParams = new URLSearchParams(window.location.search);
+  const registrationHashParams = new URLSearchParams(window.location.hash.slice(1));
+  const registrationRequested = registrationParams.get('action') === 'register-store';
   try {
     pendingStoreRegistration = registrationRequested || localStorage.getItem('pendingStoreRegistration') === 'true';
-    if (registrationRequested) localStorage.setItem('pendingStoreRegistration', 'true');
+    registrationQrToken = registrationRequested
+      ? (registrationHashParams.get('registration-token') || registrationParams.get('registration-token') || '')
+      : (localStorage.getItem('pendingStoreRegistrationToken') || '');
+    if (!/^[0-9a-f]{64}$/.test(registrationQrToken)) registrationQrToken = '';
+    if (registrationRequested) {
+      persistPendingStoreRegistration();
+      registrationParams.delete('action');
+      registrationParams.delete('registration-token');
+      registrationHashParams.delete('registration-token');
+      const query = registrationParams.toString();
+      const hash = registrationHashParams.toString();
+      history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${hash ? `#${hash}` : ''}`);
+    }
   } catch {
     pendingStoreRegistration = registrationRequested;
+    registrationQrToken = '';
   }
   legacyRestaurants = (safeStorageLoad() || [])
     .filter((record) => record && typeof record === 'object')

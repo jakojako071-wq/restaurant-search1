@@ -70,6 +70,7 @@
             <span>🔎</span>
             <input type="search" id="searchInput" placeholder="例：ラーメン、渋谷" oninput="searchRestaurants()">
         </div>
+        <button type="button" class="application-button" onclick="requestStoreApplication()">🏪 お店を登録・申請する</button>
         <p class="search-hint">営業中は青、営業時間外・臨時休業中は赤で表示します。営業中のお店が上に並びます。</p>
     </section>
 
@@ -145,7 +146,7 @@
     <div class="modal-content qr-modal-content">
         <button class="close-btn" onclick="closeStoreQrModal()">×</button>
         <h2>📱 新規店舗追加用QRコード</h2>
-        <p class="qr-description">読み取ると店舗登録フォームが開きます。登録を保存するときに担当者アカウントでログインしてください。</p>
+        <p class="qr-description">このQRから申請するとすぐに公開されます。QRは30日間有効で、一度使うと再利用できません。大切に管理してください。</p>
         <div id="publicUrlSetup" class="public-url-setup">
             <label for="publicAppUrlInput">スマホで開ける公開URL</label>
             <div class="qr-url-row">
@@ -200,13 +201,13 @@
             <button type="button" id="registerAccountBtn" class="secondary-btn" onclick="registerAccount()">店舗担当者アカウントを作成</button>
         </div>
         <p style="font-size: 12px; color: #888; margin-top: 15px;">
-            店舗担当者・サイト管理者共通のログインです。担当者はログイン後に自分のお店を登録できます。
+            店舗登録の申請には担当者アカウントが必要です。新規作成後、確認メールを開いてからログインしてください。
         </p>
     </div>
 </div>
 
 
-<!-- 新規店舗追加モーダル（サイト管理者専用） -->
+<!-- 店舗登録申請モーダル -->
 <div id="addStoreModal" class="modal">
     <div class="modal-content" style="max-width: 600px;">
         <button class="close-btn" onclick="closeAddStoreModal()">×</button>
