@@ -7,6 +7,7 @@ const DISASTER_POLL_INTERVAL_MS = 60 * 1000;
 let restaurants = [];
 let legacyRestaurants = [];
 let disasterIncidentEventKeys = new Map();
+let disasterNotificationSnapshotInitialized = false;
 let disasterMonitorStatus = null;
 let disasterSchemaUnavailable = false;
 let disasterRefreshInProgress = false;
@@ -185,8 +186,80 @@ function setCloudStatus(message, isError = false) {
 function setDisasterStatus(message, isError = false) {
   const status = document.getElementById('disasterStatus');
   if (!status) return;
-  status.textContent = message;
+  const messageElement = document.getElementById('disasterStatusMessage');
+  if (messageElement) messageElement.textContent = message;
+  else status.textContent = message;
   status.classList.toggle('is-error', isError);
+}
+
+function updateDesktopNotificationButton() {
+  const button = document.getElementById('enableDesktopNotificationsBtn');
+  if (!button) return;
+  if (!window.isSecureContext || !('Notification' in window)) {
+    button.hidden = true;
+    return;
+  }
+  button.hidden = false;
+  if (Notification.permission === 'granted') {
+    button.textContent = '🔔 デスクトップ通知は有効です';
+    button.disabled = true;
+    button.title = '';
+  } else if (Notification.permission === 'denied') {
+    button.textContent = '🔔 通知はブロックされています';
+    button.disabled = true;
+    button.title = 'ブラウザーのサイト設定から通知を許可してください。';
+  } else {
+    button.textContent = '🔔 デスクトップ通知を有効にする';
+    button.disabled = false;
+    button.title = '';
+  }
+}
+
+async function enableDesktopNotifications() {
+  if (!window.isSecureContext || !('Notification' in window)) {
+    setDisasterStatus('この環境ではデスクトップ通知を利用できません。HTTPSでアプリを開いてください。', true);
+    return;
+  }
+  try {
+    const permission = await Notification.requestPermission();
+    updateDesktopNotificationButton();
+    if (permission === 'granted') {
+      setDisasterStatus('デスクトップ通知を有効にしました。災害情報の新規検知時に通知します。');
+    } else if (permission === 'denied') {
+      setDisasterStatus('通知が許可されませんでした。ブラウザーのサイト設定から通知を許可してください。', true);
+    }
+  } catch (error) {
+    console.error('デスクトップ通知の許可を取得できませんでした。', error);
+    setDisasterStatus('デスクトップ通知を有効にできませんでした。ブラウザーの設定を確認してください。', true);
+  }
+}
+
+function updateDisasterIncidentEventKeys(rows) {
+  const nextEventKeys = new Map(rows.map((row) => [row.restaurant_id, row.event_key]));
+  if (disasterNotificationSnapshotInitialized) {
+    nextEventKeys.forEach((eventKey, restaurantId) => {
+      if (disasterIncidentEventKeys.get(restaurantId) === eventKey) return;
+      const restaurant = restaurants.find((item) => item.id === restaurantId && item.approved);
+      if (!restaurant || (!isSiteModerator && restaurant.id !== loggedInStoreId)) return;
+      if (!window.isSecureContext || !('Notification' in window) || Notification.permission !== 'granted') return;
+      try {
+        const notification = new Notification('災害発生を検知しました', {
+          body: `${restaurant.name}：災害発生のため不明です。店舗の安全と営業状況を確認してください。`,
+          tag: `restaurant-disaster-${restaurantId}`
+        });
+        notification.onclick = () => {
+          window.focus();
+          switchView('admin');
+          notification.close();
+        };
+      } catch (error) {
+        console.error('デスクトップ通知を表示できませんでした。', error);
+      }
+    });
+  } else {
+    disasterNotificationSnapshotInitialized = true;
+  }
+  disasterIncidentEventKeys = nextEventKeys;
 }
 
 function isMissingDisasterSchemaError(error) {
@@ -225,7 +298,7 @@ async function refreshDisasterInformation() {
       throw schemaError;
     }
     disasterSchemaUnavailable = false;
-    disasterIncidentEventKeys = new Map(incidentRows.map((row) => [row.restaurant_id, row.event_key]));
+    updateDisasterIncidentEventKeys(incidentRows);
     disasterMonitorStatus = monitorRows;
     searchRestaurants();
     renderMapMarkers();
@@ -387,13 +460,11 @@ async function loadRestaurants() {
     updateRestaurantRatingFromReviews(restaurant);
     return restaurant;
   });
-  if (!incidentError) {
-    disasterIncidentEventKeys = new Map(incidentRows.map((row) => [row.restaurant_id, row.event_key]));
-  }
   if (!monitorStatusError) disasterMonitorStatus = monitorStatusRow;
   if (authUser) {
     loggedInStoreId = restaurants.find((restaurant) => restaurant.ownerId === authUser.id)?.id || null;
   }
+  if (!incidentError) updateDisasterIncidentEventKeys(incidentRows);
   setCloudStatus(`共有データを読み込みました（${restaurants.length}店舗）。`);
   searchRestaurants();
   updateAuthenticatedControls();
@@ -2425,6 +2496,7 @@ function bindEvents() {
   document.getElementById('categoryFilter')?.addEventListener('change', searchRestaurants);
   document.getElementById('closeLoginModal')?.addEventListener('click', closeLoginModal);
   document.getElementById('logoutButton')?.addEventListener('click', logout);
+  document.getElementById('enableDesktopNotificationsBtn')?.addEventListener('click', enableDesktopNotifications);
   document.getElementById('accountSettingsForm')?.addEventListener('submit', saveAccountSettings);
   document.querySelectorAll('.modal').forEach((modal) => {
     modal.addEventListener('click', (event) => {
@@ -2540,6 +2612,7 @@ function initializeApp() {
     }
   }
   bindEvents();
+  updateDesktopNotificationButton();
   switchView('user');
   createMap();
   window.setInterval(refreshDisasterInformation, DISASTER_POLL_INTERVAL_MS);
