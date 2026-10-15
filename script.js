@@ -711,7 +711,7 @@ function renderRestaurantCards(items) {
     const openNow = isCurrentlyOpen(restaurant);
     const disasterConfirming = isDisasterConfirming(restaurant);
     const statusText = disasterConfirming
-      ? '⚠️ 災害発生のため確認中'
+      ? '⚠️ 災害発生のため不明'
       : restaurant.emergencyClosed ? '🚨 緊急臨時休業中' : openNow ? '🟢 営業中' : '🔴 営業時間外';
     const primaryImage = getRestaurantImages(restaurant)[0];
     return `
@@ -798,7 +798,7 @@ function renderAdminList() {
             <strong>${escapeHtml(restaurant.name)}</strong>
             <div>${escapeHtml(restaurant.category || '未分類')} / ${escapeHtml(restaurant.address || '住所未設定')}</div>
             ${restaurant.approved ? '' : '<div class="approval-pending">⏳ 承認待ち</div>'}
-            ${disasterConfirming ? '<div class="disaster-confirming-label">⚠️ 災害発生のため確認中</div>' : ''}
+            ${disasterConfirming ? '<div class="disaster-confirming-label">⚠️ 災害発生のため不明</div>' : ''}
             ${restaurant.approved && restaurant.emergencyClosed ? '<div class="store-status-emergency">🚨 臨時休業中</div>' : ''}
           </div>
           <div class="admin-actions">
@@ -852,7 +852,7 @@ function renderStoreManagerPanel() {
   const openNow = isCurrentlyOpen(restaurant);
   const disasterConfirming = isDisasterConfirming(restaurant);
   const statusText = disasterConfirming
-    ? '災害発生のため確認中'
+    ? '災害発生のため不明'
     : restaurant.emergencyClosed ? '臨時休業中'
     : openNow ? '営業中' : '営業時間外';
   panel.innerHTML = `
@@ -1178,7 +1178,7 @@ function openRestaurantDetail(restaurantId) {
   content.innerHTML = `
     <button class="close-btn" onclick="closeModal()">×</button>
     <h2>${escapeHtml(selectedRestaurant.name)}</h2>
-    ${disasterConfirming ? '<p class="disaster-confirming-label">⚠️ 災害発生のため確認中</p>' : ''}
+    ${disasterConfirming ? '<p class="disaster-confirming-label">⚠️ 災害発生のため不明</p>' : ''}
     ${images.length ? `
       <section class="gallery-section" aria-label="店舗写真">
         <h3>店舗写真（${images.length}枚）</h3>
