@@ -2,9 +2,15 @@ const STORAGE_KEY = 'restaurantData';
 const LEGACY_PLACEHOLDER_IMAGE = 'https://images.unsplash.com/photo-1559339352-11d035aa65de?auto=format&fit=crop&w=800&q=80';
 const IMAGE_BUCKET = 'restaurant-images';
 const MAX_STORE_IMAGE_SIZE = 5 * 1024 * 1024;
+const DISASTER_POLL_INTERVAL_MS = 60 * 1000;
 
 let restaurants = [];
 let legacyRestaurants = [];
+let disasterIncidentEventKeys = new Map();
+let disasterMonitorStatus = null;
+let disasterSchemaUnavailable = false;
+let disasterRefreshInProgress = false;
+const disasterMonitorStartedAt = Date.now();
 let selectedRestaurant = null;
 let selectedRestaurantId = null;
 let isSiteModerator = false;
@@ -176,6 +182,103 @@ function setCloudStatus(message, isError = false) {
   status.closest('.cloud-status')?.classList.toggle('cloud-status-error', isError);
 }
 
+function setDisasterStatus(message, isError = false) {
+  const status = document.getElementById('disasterStatus');
+  if (!status) return;
+  status.textContent = message;
+  status.classList.toggle('is-error', isError);
+}
+
+function isMissingDisasterSchemaError(error) {
+  const message = `${error?.message || ''} ${error?.details || ''}`;
+  return ['PGRST205', '42P01'].includes(error?.code)
+    && /restaurant_disaster_incidents|disaster_monitor_status/.test(message);
+}
+
+function showDisasterSchemaUnavailable() {
+  disasterSchemaUnavailable = true;
+  setDisasterStatus('災害監視用テーブルが見つかりません。Supabase SQL Editorで最新のsupabase-schema.sqlを実行してください。', true);
+}
+
+async function refreshDisasterInformation() {
+  if (!supabaseClient) {
+    setDisasterStatus('災害情報の自動監視にはSupabaseの設定が必要です。', true);
+    return;
+  }
+  if (disasterRefreshInProgress) return;
+  disasterRefreshInProgress = true;
+  setDisasterStatus('災害情報の自動監視状態を確認しています…');
+  try {
+    const [
+      { data: incidentRows, error: incidentError },
+      { data: monitorRows, error: monitorError }
+    ] = await Promise.all([
+      supabaseClient.from('restaurant_disaster_incidents').select('restaurant_id,event_key'),
+      supabaseClient.from('disaster_monitor_status').select('last_checked_at,last_error').eq('id', 1).maybeSingle()
+    ]);
+    if (incidentError || monitorError) {
+      const schemaError = incidentError || monitorError;
+      if (isMissingDisasterSchemaError(schemaError)) {
+        showDisasterSchemaUnavailable();
+        return;
+      }
+      throw schemaError;
+    }
+    disasterSchemaUnavailable = false;
+    disasterIncidentEventKeys = new Map(incidentRows.map((row) => [row.restaurant_id, row.event_key]));
+    disasterMonitorStatus = monitorRows;
+    searchRestaurants();
+    renderMapMarkers();
+    updateAuthenticatedControls();
+    renderDisasterMonitorStatus();
+  } catch (error) {
+    if (isMissingDisasterSchemaError(error)) {
+      showDisasterSchemaUnavailable();
+      return;
+    }
+    console.error('災害情報の監視状態を取得できませんでした。', error);
+    setDisasterStatus(`災害情報の監視状態を取得できませんでした。${error.message ? ` ${error.message}` : ''}`, true);
+  } finally {
+    disasterRefreshInProgress = false;
+  }
+}
+
+function renderDisasterMonitorStatus() {
+  if (disasterSchemaUnavailable) {
+    showDisasterSchemaUnavailable();
+    return;
+  }
+  if (!disasterMonitorStatus?.last_checked_at) {
+    const waitingTooLong = Date.now() - disasterMonitorStartedAt > 15 * 60 * 1000;
+    setDisasterStatus(
+      waitingTooLong
+        ? '災害情報の監視結果がありません。Edge FunctionとCronの設定を確認してください。'
+        : '災害情報の自動監視を初回実行中です。',
+      waitingTooLong
+    );
+    return;
+  }
+  if (disasterMonitorStatus.last_error) {
+    setDisasterStatus(disasterMonitorStatus.last_error, true);
+    return;
+  }
+  const checkedAt = new Date(disasterMonitorStatus.last_checked_at);
+  if (!Number.isFinite(checkedAt.getTime()) || Date.now() - checkedAt.getTime() > 15 * 60 * 1000) {
+    setDisasterStatus('災害情報の自動監視が15分以上更新されていません。設定を確認してください。', true);
+    return;
+  }
+  setDisasterStatus(`気象庁の災害情報を確認しました（${checkedAt.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}更新）。`);
+}
+
+function getActiveDisasterEventKey(restaurant) {
+  return disasterIncidentEventKeys.get(restaurant.id) || '';
+}
+
+function isDisasterConfirming(restaurant) {
+  const activeEventKey = getActiveDisasterEventKey(restaurant);
+  return Boolean(restaurant.approved && activeEventKey);
+}
+
 function initializeSupabase() {
   const config = window.SUPABASE_CONFIG;
   if (!window.supabase || !config?.url || !config?.anonKey) {
@@ -242,12 +345,28 @@ async function loadRestaurants() {
   if (!supabaseClient) return;
 
   setCloudStatus('共有データを読み込んでいます…');
-  const [{ data: restaurantRows, error: restaurantError }, { data: reviewRows, error: reviewError }] = await Promise.all([
+  const [
+    { data: restaurantRows, error: restaurantError },
+    { data: reviewRows, error: reviewError },
+    { data: incidentRows, error: incidentError },
+    { data: monitorStatusRow, error: monitorStatusError }
+  ] = await Promise.all([
     supabaseClient.from('restaurants').select('*').order('created_at', { ascending: false }),
-    supabaseClient.from('reviews').select('*').gte('created_at', getOneMonthAgoIsoString()).order('created_at', { ascending: false })
+    supabaseClient.from('reviews').select('*').gte('created_at', getOneMonthAgoIsoString()).order('created_at', { ascending: false }),
+    supabaseClient.from('restaurant_disaster_incidents').select('restaurant_id,event_key'),
+    supabaseClient.from('disaster_monitor_status').select('last_checked_at,last_error').eq('id', 1).maybeSingle()
   ]);
   if (restaurantError) throw restaurantError;
   if (reviewError) throw reviewError;
+  const disasterSchemaError = incidentError || monitorStatusError;
+  if (disasterSchemaError && !isMissingDisasterSchemaError(disasterSchemaError)) {
+    throw disasterSchemaError;
+  }
+  if (disasterSchemaError) {
+    showDisasterSchemaUnavailable();
+  } else {
+    disasterSchemaUnavailable = false;
+  }
 
   const reviewsByRestaurant = new Map();
   reviewRows.forEach((row) => {
@@ -268,6 +387,10 @@ async function loadRestaurants() {
     updateRestaurantRatingFromReviews(restaurant);
     return restaurant;
   });
+  if (!incidentError) {
+    disasterIncidentEventKeys = new Map(incidentRows.map((row) => [row.restaurant_id, row.event_key]));
+  }
+  if (!monitorStatusError) disasterMonitorStatus = monitorStatusRow;
   if (authUser) {
     loggedInStoreId = restaurants.find((restaurant) => restaurant.ownerId === authUser.id)?.id || null;
   }
@@ -275,6 +398,7 @@ async function loadRestaurants() {
   searchRestaurants();
   updateAuthenticatedControls();
   renderMapMarkers();
+  if (!disasterSchemaUnavailable) renderDisasterMonitorStatus();
 }
 
 async function saveRestaurantToCloud(restaurant, isNew = false, oldImages = isNew ? [] : getRestaurantImages(restaurant)) {
@@ -357,6 +481,12 @@ function subscribeToCloudChanges() {
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'reviews' }, () => {
       loadRestaurants().catch(handleCloudError);
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'restaurant_disaster_incidents' }, () => {
+      refreshDisasterInformation();
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'disaster_monitor_status' }, () => {
+      refreshDisasterInformation();
     })
     .subscribe((status) => {
       if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
@@ -550,7 +680,7 @@ function updateRestaurantRatingFromReviews(restaurant) {
 }
 
 function isCurrentlyOpen(restaurant, now = new Date()) {
-  if (restaurant.emergencyClosed) return false;
+  if (restaurant.emergencyClosed || isDisasterConfirming(restaurant)) return false;
   const { openingTime, closingTime } = restaurant;
   if (!openingTime || !closingTime) return false;
 
@@ -579,10 +709,13 @@ function renderRestaurantCards(items) {
 
   container.innerHTML = items.map((restaurant) => {
     const openNow = isCurrentlyOpen(restaurant);
-    const statusText = restaurant.emergencyClosed ? '🚨 緊急臨時休業中' : openNow ? '🟢 営業中' : '🔴 営業時間外';
+    const disasterConfirming = isDisasterConfirming(restaurant);
+    const statusText = disasterConfirming
+      ? '⚠️ 災害発生のため確認中'
+      : restaurant.emergencyClosed ? '🚨 緊急臨時休業中' : openNow ? '🟢 営業中' : '🔴 営業時間外';
     const primaryImage = getRestaurantImages(restaurant)[0];
     return `
-    <article class="restaurant-card ${openNow ? 'restaurant-card-open' : 'restaurant-card-closed'}" data-id="${escapeHtml(restaurant.id)}">
+    <article class="restaurant-card ${disasterConfirming ? 'restaurant-card-disaster' : openNow ? 'restaurant-card-open' : 'restaurant-card-closed'}" data-id="${escapeHtml(restaurant.id)}">
       ${primaryImage ? `<img src="${escapeHtml(primaryImage)}" alt="${escapeHtml(restaurant.name)}" />` : ''}
       <div class="restaurant-card-body">
         <div class="restaurant-topline">
@@ -657,23 +790,28 @@ function renderAdminList() {
   }
 
   container.innerHTML = restaurants.length
-    ? restaurants.map((restaurant) => `
+    ? restaurants.map((restaurant) => {
+      const disasterConfirming = isDisasterConfirming(restaurant);
+      return `
         <div class="admin-item" data-id="${escapeHtml(restaurant.id)}">
           <div>
             <strong>${escapeHtml(restaurant.name)}</strong>
             <div>${escapeHtml(restaurant.category || '未分類')} / ${escapeHtml(restaurant.address || '住所未設定')}</div>
             ${restaurant.approved ? '' : '<div class="approval-pending">⏳ 承認待ち</div>'}
+            ${disasterConfirming ? '<div class="disaster-confirming-label">⚠️ 災害発生のため確認中</div>' : ''}
             ${restaurant.approved && restaurant.emergencyClosed ? '<div class="store-status-emergency">🚨 臨時休業中</div>' : ''}
           </div>
           <div class="admin-actions">
             ${restaurant.approved ? '' : `<button type="button" class="submit-btn" data-action="admin-approve" data-id="${escapeHtml(restaurant.id)}">承認して公開</button>`}
             <button type="button" class="secondary-btn" data-action="admin-edit" data-id="${escapeHtml(restaurant.id)}">編集</button>
-            ${restaurant.approved ? `<button type="button" class="secondary-btn" data-action="admin-toggle-emergency-closure" data-id="${escapeHtml(restaurant.id)}" ${storeStatusSaveInProgress ? 'disabled' : ''}>${restaurant.emergencyClosed ? '営業を再開' : '臨時休業にする'}</button>` : ''}
+            ${disasterConfirming ? `<button type="button" class="resume-business-btn" data-action="acknowledge-disaster" data-id="${escapeHtml(restaurant.id)}" ${storeStatusSaveInProgress ? 'disabled' : ''}>営業を再開</button>` : ''}
+            ${restaurant.approved && !disasterConfirming ? `<button type="button" class="secondary-btn" data-action="admin-toggle-emergency-closure" data-id="${escapeHtml(restaurant.id)}" ${storeStatusSaveInProgress ? 'disabled' : ''}>${restaurant.emergencyClosed ? '営業を再開' : '臨時休業にする'}</button>` : ''}
             ${restaurant.approved ? `<button type="button" class="secondary-btn" data-action="admin-emergency-qr" data-id="${escapeHtml(restaurant.id)}">臨時休業QR</button>` : ''}
             <button type="button" class="danger-btn" data-action="admin-delete" data-id="${escapeHtml(restaurant.id)}">${restaurant.approved ? '削除' : '却下・削除'}</button>
           </div>
         </div>
-      `).join('')
+      `;
+    }).join('')
     : '<div class="empty-state">まだ店舗がありません。</div>';
 }
 
@@ -712,26 +850,30 @@ function renderStoreManagerPanel() {
     return;
   }
   const openNow = isCurrentlyOpen(restaurant);
-  const statusText = restaurant.emergencyClosed
-    ? '臨時休業中'
+  const disasterConfirming = isDisasterConfirming(restaurant);
+  const statusText = disasterConfirming
+    ? '災害発生のため確認中'
+    : restaurant.emergencyClosed ? '臨時休業中'
     : openNow ? '営業中' : '営業時間外';
   panel.innerHTML = `
     <p class="store-dashboard-kicker">店舗運営者専用管理画面</p>
     <h2>${escapeHtml(restaurant.name)} の店舗管理</h2>
     <div class="store-dashboard-summary">
-      <p><strong>現在の状態</strong><span class="${restaurant.emergencyClosed ? 'store-status-emergency' : openNow ? 'store-status-open' : 'store-status-closed'}">${restaurant.emergencyClosed ? '🚨 ' : openNow ? '🟢 ' : '🔴 '}${statusText}</span></p>
+      <p><strong>現在の状態</strong><span class="${disasterConfirming ? 'store-status-disaster' : restaurant.emergencyClosed ? 'store-status-emergency' : openNow ? 'store-status-open' : 'store-status-closed'}">${disasterConfirming ? '⚠️ ' : restaurant.emergencyClosed ? '🚨 ' : openNow ? '🟢 ' : '🔴 '}${statusText}</span></p>
       <p><strong>営業時間</strong><span>${escapeHtml(restaurant.openingTime || '未登録')}〜${escapeHtml(restaurant.closingTime || '未登録')}</span></p>
       <p><strong>住所</strong><span>${escapeHtml(restaurant.address || '未登録')}</span></p>
     </div>
-    <p>${restaurant.emergencyClosed
+    <p>${disasterConfirming
+      ? '気象庁の災害情報に該当する地域です。店舗の安全と営業状況を確認し、「営業を再開する」を押してください。'
+      : restaurant.emergencyClosed
       ? '臨時休業中です。「営業を再開する」を押すと、営業時間内にお店一覧と地図へ再表示されます。'
       : '緊急時は臨時休業に切り替えてください。営業再開時は「営業を再開する」を押してください。'}</p>
     <div class="store-manager-actions">
       <button type="button" class="edit-own-store-btn" data-action="edit-own-store">✏️ 店舗情報を編集</button>
       <button type="button" class="qr-button" data-action="emergency-qr" data-id="${escapeHtml(restaurant.id)}">📱 臨時休業QRを作成</button>
     </div>
-    <button type="button" class="${restaurant.emergencyClosed ? 'resume-business-btn' : 'emergency-close-btn'}" data-action="toggle-emergency-closure" ${storeStatusSaveInProgress ? 'disabled' : ''}>
-      ${restaurant.emergencyClosed ? '🟢 営業を再開する' : '🚨 緊急のため臨時休業にする'}
+    <button type="button" class="${disasterConfirming || restaurant.emergencyClosed ? 'resume-business-btn' : 'emergency-close-btn'}" data-action="${disasterConfirming ? 'acknowledge-disaster' : 'toggle-emergency-closure'}" ${storeStatusSaveInProgress ? 'disabled' : ''}>
+      ${disasterConfirming || restaurant.emergencyClosed ? '🟢 営業を再開する' : '🚨 緊急のため臨時休業にする'}
     </button>
   `;
 }
@@ -803,6 +945,37 @@ async function toggleEmergencyClosure(restaurantId = loggedInStoreId) {
   } catch (error) {
     handleCloudError(error);
     alert('営業状態は保存されましたが、画面の更新に失敗しました。再接続してください。');
+  } finally {
+    storeStatusSaveInProgress = false;
+    renderStoreManagerPanel();
+    renderAdminList();
+  }
+}
+
+async function acknowledgeDisasterAndResume(restaurantId = loggedInStoreId) {
+  if (storeStatusSaveInProgress) return;
+  const restaurant = restaurants.find((item) => item.id === restaurantId);
+  const eventKey = restaurant && getActiveDisasterEventKey(restaurant);
+  if (!restaurant || !eventKey || (!isSiteModerator && restaurant.id !== loggedInStoreId)) {
+    alert('対象店舗または現在の災害情報を確認できません。災害情報を再取得してからお試しください。');
+    return;
+  }
+  if (!confirm(`${restaurant.name}の安全と営業再開を確認しましたか？確認すると、この店舗は通常の営業状況に戻ります。`)) return;
+
+  storeStatusSaveInProgress = true;
+  renderStoreManagerPanel();
+  renderAdminList();
+  try {
+    const { data, error } = await supabaseClient.rpc('acknowledge_restaurant_disaster', {
+      p_restaurant_id: restaurant.id,
+      p_event_key: eventKey
+    });
+    if (error) throw error;
+    if (data !== true) throw new Error('この店舗の災害確認を保存できませんでした。');
+    await loadRestaurants();
+  } catch (error) {
+    handleCloudError(error);
+    alert(`営業再開を保存できませんでした。店舗アカウントの権限、Supabaseの設定、通信状態を確認してください。${error.message ? `\n${error.message}` : ''}`);
   } finally {
     storeStatusSaveInProgress = false;
     renderStoreManagerPanel();
@@ -1000,10 +1173,12 @@ function openRestaurantDetail(restaurantId) {
   if (!modal || !content) return;
   const averageRating = getRestaurantRating(selectedRestaurant);
   const images = getRestaurantImages(selectedRestaurant);
+  const disasterConfirming = isDisasterConfirming(selectedRestaurant);
 
   content.innerHTML = `
     <button class="close-btn" onclick="closeModal()">×</button>
     <h2>${escapeHtml(selectedRestaurant.name)}</h2>
+    ${disasterConfirming ? '<p class="disaster-confirming-label">⚠️ 災害発生のため確認中</p>' : ''}
     ${images.length ? `
       <section class="gallery-section" aria-label="店舗写真">
         <h3>店舗写真（${images.length}枚）</h3>
@@ -2307,6 +2482,7 @@ function bindEvents() {
     if (!button) return;
 
     if (button.dataset.action === 'toggle-emergency-closure') toggleEmergencyClosure();
+    if (button.dataset.action === 'acknowledge-disaster') acknowledgeDisasterAndResume();
     if (button.dataset.action === 'edit-own-store' && loggedInStoreId) editStore(loggedInStoreId);
     if (button.dataset.action === 'emergency-qr' && button.dataset.id) openEmergencyClosureQr(button.dataset.id);
     if (button.dataset.action === 'create-own-store') requestStoreApplication();
@@ -2320,6 +2496,7 @@ function bindEvents() {
     if (action === 'admin-approve') approveStore(id);
     if (action === 'admin-edit') editStore(id);
     if (action === 'admin-toggle-emergency-closure') toggleEmergencyClosure(id);
+    if (action === 'acknowledge-disaster') acknowledgeDisasterAndResume(id);
     if (action === 'admin-emergency-qr') openEmergencyClosureQr(id);
     if (action === 'admin-delete') deleteStore(id);
   });
@@ -2366,6 +2543,7 @@ function initializeApp() {
   bindEvents();
   switchView('user');
   createMap();
+  window.setInterval(refreshDisasterInformation, DISASTER_POLL_INTERVAL_MS);
   document.getElementById('retryCloudBtn')?.addEventListener('click', () => {
     loadRestaurants()
       .then(() => refreshAuthState(authUser ? { user: authUser } : null))
@@ -2373,6 +2551,7 @@ function initializeApp() {
   });
   if (!initializeSupabase()) {
     searchRestaurants();
+    refreshDisasterInformation();
     return;
   }
 
@@ -2394,6 +2573,7 @@ function initializeApp() {
     .catch((error) => {
       handleCloudError(error);
       searchRestaurants();
+      refreshDisasterInformation();
     });
   window.setInterval(() => {
     searchRestaurants();

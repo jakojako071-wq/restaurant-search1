@@ -111,6 +111,20 @@ body {
     color: #991b1b;
 }
 
+.disaster-status {
+    margin: 0;
+    padding: 8px 20px;
+    background: #f8fafc;
+    color: #475569;
+    font-size: 13px;
+    text-align: center;
+}
+
+.disaster-status.is-error {
+    background: #fef2f2;
+    color: #991b1b;
+}
+
 
 /* 画面切り替えの表示制御 */
 
@@ -346,6 +360,11 @@ main {
     border: 2px solid #f87171;
 }
 
+.restaurant-card-disaster {
+    background: #fef3c7;
+    border: 2px solid #f59e0b;
+}
+
 .restaurant-card-selected {
     outline: 4px solid #f59e0b;
     outline-offset: 2px;
@@ -370,6 +389,11 @@ main {
 .restaurant-card-closed .business-status {
     background: #fecaca;
     color: #991b1b;
+}
+
+.restaurant-card-disaster .business-status {
+    background: #fde68a;
+    color: #92400e;
 }
 
 .restaurant-card > img {
@@ -599,6 +623,19 @@ main {
 .store-status-emergency {
     color: #b91c1c;
     font-weight: 800;
+}
+
+.store-status-disaster,
+.disaster-confirming-label {
+    color: #92400e;
+    font-weight: 800;
+}
+
+.disaster-confirming-label {
+    margin: 8px 0;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: #fef3c7;
 }
 
 .approval-pending {

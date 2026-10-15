@@ -45,6 +45,7 @@
     <span id="cloudStatus">共有データベースに接続しています…</span>
     <button type="button" id="retryCloudBtn">再接続</button>
 </p>
+<p id="disasterStatus" class="disaster-status" role="status" aria-live="polite">災害情報の自動監視を確認しています…</p>
 
 <!-- 1. 利用者用画面 -->
 <main id="userPage" class="page-view active">
@@ -71,7 +72,7 @@
             <input type="search" id="searchInput" placeholder="例：ラーメン、渋谷" oninput="searchRestaurants()">
         </div>
         <button type="button" class="application-button" onclick="requestStoreApplication()">🏪 お店を登録・申請する</button>
-        <p class="search-hint">営業中は青、営業時間外・臨時休業中は赤で表示します。営業中のお店が上に並びます。</p>
+        <p class="search-hint">営業中は青、営業時間外・臨時休業中は赤、災害情報の対象地域は黄色で「災害発生のため確認中」と表示します。</p>
     </section>
 
     <section class="map-section">
@@ -84,7 +85,7 @@
             <h2>お店の営業状況</h2>
             <span id="restaurantCount"></span>
         </div>
-        <p class="business-hours-hint">営業中のお店が上、営業時間外・臨時休業中のお店が下に表示されます。</p>
+        <p class="business-hours-hint">気象庁の災害情報に該当する地域の店舗は、営業状況を確認するまで黄色で表示されます。</p>
         <div id="restaurantList"></div>
     </section>
 </main>
@@ -254,7 +255,7 @@
             <button type="button" id="registerAccountBtn" class="secondary-btn" onclick="registerAccount()">店舗担当者アカウントを作成</button>
         </div>
         <p style="font-size: 12px; color: #888; margin-top: 15px;">
-            店舗登録の申請には担当者アカウントが必要です。新規作成後、確認メールを開いてからログインしてください。
+            店舗登録の申請には担当者アカウントが必要です。新規作成後、確認メールを開いてからログインしてください。災害情報の対象地域となった場合は、担当店舗の状況確認のため、このアカウントのメールアドレスに通知します。
         </p>
     </div>
 </div>
