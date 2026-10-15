@@ -1190,7 +1190,6 @@ function openRestaurantDetail(restaurantId) {
     <div class="modal-info">
       <p><strong>カテゴリ:</strong> ${escapeHtml(selectedRestaurant.category || '未分類')}</p>
       <p><strong>住所:</strong> ${escapeHtml(selectedRestaurant.address || '住所未設定')}</p>
-      <p><strong>電話:</strong> ${escapeHtml(selectedRestaurant.phone || '未登録')}</p>
       <p><strong>予算:</strong> ${escapeHtml(selectedRestaurant.budget || '未設定')}</p>
       <p><strong>営業時間:</strong> ${escapeHtml(selectedRestaurant.openingTime || '未登録')}〜${escapeHtml(selectedRestaurant.closingTime || '未登録')}</p>
       <p><strong>評価:</strong> ${averageRating === null ? '評価なし' : `${averageRating.toFixed(1)} / 5.0`}</p>
