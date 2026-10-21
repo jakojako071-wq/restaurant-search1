@@ -2004,3 +2004,14 @@ textarea:focus-visible {
 .delete-review-btn:hover {
     background: #fecaca !important;
 }
+/* 管理者専用・非永続の災害表示テスト */
+.disaster-test-panel { margin: 18px 0; padding: 20px; border: 2px solid #d97706; border-radius: 14px; background: #fffbeb; color: #78350f; }
+.disaster-test-panel[hidden] { display: none !important; }
+.disaster-test-panel h2 { margin: 0 0 8px; font-size: 20px; }
+.disaster-test-tag { font-size: 13px; padding: 3px 9px; border-radius: 8px; background: #92400e; color: white; }
+.disaster-test-panel label { display: block; font-weight: bold; margin: 14px 0 6px; }
+.disaster-test-panel select { width: 100%; max-width: 550px; padding: 12px; border-radius: 8px; border: 1px solid #d97706; background: white; }
+.disaster-test-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0; }
+.disaster-test-preview { padding: 15px; border-radius: 10px; border: 1px dashed #d97706; background: #fff; }
+.disaster-test-preview.active { background: #fef3c7; border: 2px solid #d97706; }
+.disaster-test-preview p { margin: 8px 0; }

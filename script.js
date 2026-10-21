@@ -781,12 +781,14 @@ function renderRestaurantCards(items) {
   container.innerHTML = items.map((restaurant) => {
     const openNow = isCurrentlyOpen(restaurant);
     const disasterConfirming = isDisasterConfirming(restaurant);
+    const drill = matchesDisasterDrill(restaurant);
     const statusText = disasterConfirming
       ? '⚠️ 災害発生のため不明'
+      : drill ? '🧪 【訓練】災害発生のため不明（実際の災害ではありません）'
       : restaurant.emergencyClosed ? '🚨 緊急臨時休業中' : openNow ? '🟢 営業中' : '🔴 営業時間外';
     const primaryImage = getRestaurantImages(restaurant)[0];
     return `
-    <article class="restaurant-card ${disasterConfirming ? 'restaurant-card-disaster' : openNow ? 'restaurant-card-open' : 'restaurant-card-closed'}" data-id="${escapeHtml(restaurant.id)}">
+    <article class="restaurant-card ${disasterConfirming || drill ? 'restaurant-card-disaster' : openNow ? 'restaurant-card-open' : 'restaurant-card-closed'}" data-id="${escapeHtml(restaurant.id)}">
       ${primaryImage ? `<img src="${escapeHtml(primaryImage)}" alt="${escapeHtml(restaurant.name)}" />` : ''}
       <div class="restaurant-card-body">
         <div class="restaurant-topline">
@@ -851,7 +853,74 @@ function renderReviews(restaurant) {
   `;
 }
 
+// 訓練データは実災害テーブルと分離。閲覧者にも「訓練」を明示する。
+let disasterDrill = null;
+let drillNoticeKey = '';
+const JP_PREFECTURES = '北海道 青森県 岩手県 宮城県 秋田県 山形県 福島県 茨城県 栃木県 群馬県 埼玉県 千葉県 東京都 神奈川県 新潟県 富山県 石川県 福井県 山梨県 長野県 岐阜県 静岡県 愛知県 三重県 滋賀県 京都府 大阪府 兵庫県 奈良県 和歌山県 鳥取県 島根県 岡山県 広島県 山口県 徳島県 香川県 愛媛県 高知県 福岡県 佐賀県 長崎県 熊本県 大分県 宮崎県 鹿児島県 沖縄県'.split(' ');
+function matchesDisasterDrill(r) {
+  if (!disasterDrill?.active || !r.approved) return false;
+  const address = String(r.address || '').replace(/\s/g, '');
+  if (disasterDrill.scope === 'national') return true;
+  if (!address.includes(disasterDrill.prefecture)) return false;
+  return disasterDrill.scope === 'prefecture' || address.includes(disasterDrill.city);
+}
+function renderDisasterTestPanel() {
+  const panel = document.getElementById('disasterTestPanel');
+  if (!panel) return;
+  panel.hidden = !isSiteModerator || !authUser;
+  if (panel.hidden) return;
+  const pref = document.getElementById('disasterTestPrefecture');
+  if (!pref.options.length) pref.innerHTML = JP_PREFECTURES.map(p => `<option value="${p}">${p}</option>`).join('');
+  renderDisasterTestPreview();
+}
+function drillSelection() {
+  return {
+    scope: document.getElementById('disasterTestScope').value,
+    prefecture: document.getElementById('disasterTestPrefecture').value,
+    city: document.getElementById('disasterTestCity').value.trim(),
+    kind: document.getElementById('disasterTestKind').value
+  };
+}
+function renderDisasterTestPreview() {
+  const el = document.getElementById('disasterTestPreview');
+  if (!el) return;
+  const d = disasterDrill;
+  const count = restaurants.filter(matchesDisasterDrill).length;
+  el.innerHTML = d?.active
+    ? `<strong>🧪 【訓練中・実際の災害ではありません】</strong><p>${escapeHtml(d.kind)} / ${escapeHtml(d.scope === 'national' ? '全国' : d.prefecture + (d.scope === 'city' ? d.city : '全域'))}</p><p>対象店舗：${count}件</p><small>実際の災害情報・営業状態は変更しません。訓練は公開ページにも表示されます。</small>`
+    : '現在、訓練は実行されていません。';
+  document.getElementById('stopDisasterTest').disabled = !d?.active;
+}
+async function loadDisasterDrill() {
+  if (!supabaseClient) return;
+  const {data,error} = await supabaseClient.from('disaster_drill_state').select('*').eq('id',1).maybeSingle();
+  if (error) { console.warn('訓練情報の読み込みに失敗',error); return; }
+  const oldKey = drillNoticeKey;
+  disasterDrill = data?.active ? data : null;
+  drillNoticeKey = disasterDrill ? String(disasterDrill.updated_at) : '';
+  searchRestaurants();
+  renderMapMarkers();
+  renderDisasterTestPanel();
+  if (disasterDrill && oldKey && oldKey !== drillNoticeKey && (isSiteModerator || loggedInStoreId) && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+    try { new Notification('🧪 【訓練】災害情報テスト', {body:'実際の災害ではありません。管理画面で訓練状況を確認してください。',tag:'disaster-drill'}); } catch(e) { console.warn(e); }
+  }
+}
+async function setDisasterDrill(active) {
+  if (!isSiteModerator || !authUser || !supabaseClient) return;
+  const d = drillSelection();
+  if (active && d.scope === 'city' && !d.city) { alert('市区町村名を入力してください。'); return; }
+  if (active && !confirm('🧪 訓練表示を公開サイトの利用者にも表示します。実際の災害ではないことを明示します。続けますか？')) return;
+  const {error} = await supabaseClient.rpc('set_disaster_drill', {
+    p_active: active, p_scope:d.scope, p_prefecture:d.prefecture, p_city:d.city, p_kind:d.kind
+  });
+  if (error) { alert('訓練設定に失敗しました：'+error.message+'\n最新のsupabase-schema.sqlを適用してください。'); return; }
+  await loadDisasterDrill();
+}
+function startDisasterTest() { return setDisasterDrill(true); }
+function stopDisasterTest() { return setDisasterDrill(false); }
+
 function renderAdminList() {
+  renderDisasterTestPanel();
   const container = document.getElementById('adminRestaurantList');
   if (!container) return;
 
@@ -2559,6 +2628,13 @@ function bindEvents() {
     if (button.dataset.action === 'create-own-store') requestStoreApplication();
   });
 
+  document.getElementById('disasterTestScope')?.addEventListener('change', e => {
+    document.getElementById('disasterTestPrefecture').disabled = e.target.value === 'national';
+    document.getElementById('disasterTestCity').hidden = e.target.value !== 'city';
+  });
+  document.getElementById('startDisasterTest')?.addEventListener('click', startDisasterTest);
+  document.getElementById('stopDisasterTest')?.addEventListener('click', stopDisasterTest);
+
   document.getElementById('adminRestaurantList')?.addEventListener('click', (event) => {
     const button = event.target.closest('button[data-action]');
     if (!button) return;
@@ -2637,6 +2713,7 @@ function initializeApp() {
     .then(async ({ data, error }) => {
       if (error) throw error;
       await loadRestaurants();
+      await loadDisasterDrill();
       await refreshAuthState(data.session);
       subscribeToCloudChanges();
       await processEmergencyClosureQr();
@@ -2650,6 +2727,7 @@ function initializeApp() {
   window.setInterval(() => {
     searchRestaurants();
     renderMapMarkers();
+    loadDisasterDrill();
   }, 60 * 1000);
 }
 

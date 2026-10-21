@@ -113,6 +113,23 @@
             </div>
         </div>
 
+        <section id="disasterTestPanel" class="disaster-test-panel" hidden aria-label="災害情報テスト">
+          <h2>🧪 災害情報テスト <span class="disaster-test-tag">訓練</span></h2>
+          <p>実際の災害ではありません。公開画面にも「訓練」と表示します。実災害データと営業状況は変更しません。</p>
+          <label for="disasterTestScope">対象範囲</label>
+          <select id="disasterTestScope"><option value="prefecture">都道府県全域</option><option value="city">市区町村</option><option value="national">全国</option></select>
+          <label for="disasterTestPrefecture">都道府県</label>
+          <select id="disasterTestPrefecture"></select>
+          <label for="disasterTestCity">市区町村（住所に含まれる名称）</label>
+          <input id="disasterTestCity" placeholder="例：千葉市" hidden>
+          <label for="disasterTestKind">災害種別</label>
+          <select id="disasterTestKind"><option>地震</option><option>津波</option><option>気象警報</option></select>
+          <div class="disaster-test-actions">
+            <button type="button" id="startDisasterTest" class="submit-btn">🧪 訓練を開始</button>
+            <button type="button" id="stopDisasterTest" class="secondary-btn" disabled>訓練を終了</button>
+          </div>
+          <div id="disasterTestPreview" class="disaster-test-preview" role="status" aria-live="polite">現在、訓練は実行されていません。</div>
+        </section>
         <section id="storeManagerPanel" class="store-manager-panel store-operator-dashboard" aria-label="店舗運営者専用管理画面" hidden></section>
         <div id="adminRestaurantList" class="admin-list"></div>
     </div>
