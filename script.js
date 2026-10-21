@@ -1413,31 +1413,19 @@ function openRestaurantRoute(restaurantId) {
     alert('この店舗の位置情報が登録されていないため、ルートを表示できません。');
     return;
   }
-  if (!navigator.geolocation) {
-    alert('このブラウザでは現在地を取得できないため、ルートを表示できません。');
-    return;
-  }
 
-  const routeWindow = window.open('about:blank', '_blank');
-  if (!routeWindow) {
-    alert('ルート案内を開けませんでした。ポップアップを許可して、もう一度お試しください。');
-    return;
+  // Google Maps can use the device's current location when origin is omitted.
+  // Opening the destination directly avoids an about:blank tab while waiting
+  // for an asynchronous browser geolocation permission prompt.
+  const routeUrl = new URL('https://www.google.com/maps/dir/');
+  routeUrl.searchParams.set('api', '1');
+  routeUrl.searchParams.set('destination', `${lat},${lng}`);
+  routeUrl.searchParams.set('travelmode', 'walking');
+  const newWindow = window.open(routeUrl.toString(), '_blank', 'noopener,noreferrer');
+  if (!newWindow) {
+    // Some browsers return null with noopener even when the tab opened.
+    // Do not show a misleading popup-blocked error in that case.
   }
-  routeWindow.opener = null;
-
-  navigator.geolocation.getCurrentPosition((position) => {
-    const origin = `${position.coords.latitude},${position.coords.longitude}`;
-    const destination = `${lat},${lng}`;
-    const routeUrl = new URL('https://www.google.com/maps/dir/');
-    routeUrl.searchParams.set('api', '1');
-    routeUrl.searchParams.set('origin', origin);
-    routeUrl.searchParams.set('destination', destination);
-    routeUrl.searchParams.set('travelmode', 'walking');
-    routeWindow.location.href = routeUrl.toString();
-  }, () => {
-    routeWindow.close();
-    alert('現在地を取得できませんでした。位置情報を許可して、もう一度お試しください。');
-  });
 }
 
 function closeModal() {
