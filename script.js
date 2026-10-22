@@ -632,12 +632,38 @@ async function disableWebPush() {
     pushStatus('この端末の通知登録を解除しました。');
   } catch (error) { pushStatus(`⚠️ ${error.message}`); }
 }
+let pushStatusCheckSequence = 0;
+async function restorePushStatus() {
+  const sequence = ++pushStatusCheckSequence;
+  try {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+      pushStatus('この環境ではWeb Pushを利用できません。'); return;
+    }
+    if (Notification.permission !== 'granted') {
+      pushStatus('通知を受け取るには、この端末で「有効にする」を押してください。'); return;
+    }
+    const registration = await navigator.serviceWorker.getRegistration('./push-sw.js');
+    const subscription = await registration?.pushManager.getSubscription();
+    if (sequence !== pushStatusCheckSequence) return;
+    if (!subscription) { pushStatus('通知は許可されていますが、端末が未登録です。「有効にする」を押してください。'); return; }
+    const result = await pushApi('status', { endpoint: subscription.endpoint });
+    if (sequence !== pushStatusCheckSequence) return;
+    if (result.registered) {
+      pushStatus('✅ この端末の通知は有効です（Supabaseへの登録確認済み）。');
+    } else {
+      await pushApi('subscribe', { subscription: subscription.toJSON() });
+      if (sequence === pushStatusCheckSequence) pushStatus('✅ この端末の通知登録を復元しました。');
+    }
+  } catch (error) {
+    if (sequence === pushStatusCheckSequence) pushStatus('⚠️ 通知状態を確認できません：' + error.message);
+  }
+}
 function updatePushControls() {
   const panel = document.getElementById('pushNotificationPanel');
   if (!panel) return;
   const allowed = Boolean(authUser && (isSiteModerator || loggedInStoreId));
   panel.hidden = !allowed;
-  if (allowed) pushStatus('通知を受け取るには、この端末で「有効にする」を押してください。');
+  if (allowed) void restorePushStatus();
 }
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('enablePushBtn')?.addEventListener('click', enableWebPush);
@@ -980,6 +1006,14 @@ async function setDisasterDrill(active) {
   });
   if (error) { alert('訓練設定に失敗しました：'+error.message+'\n最新のsupabase-schema.sqlを適用してください。'); return; }
   await loadDisasterDrill();
+  // 訓練の開始・終了後、5分間隔のCronを待たずに配信する。
+  try {
+    const result = await pushApi('dispatch-now');
+    console.info('訓練通知の即時配信:', result);
+  } catch (notifyError) {
+    console.warn('訓練通知の即時配信に失敗:', notifyError);
+    alert('訓練状態は保存されましたが、通知の即時送信に失敗しました：' + notifyError.message);
+  }
 }
 function startDisasterTest() { return setDisasterDrill(true); }
 function stopDisasterTest() { return setDisasterDrill(false); }
