@@ -580,6 +580,70 @@ async function refreshAuthState(session) {
   updateAuthenticatedControls();
 }
 
+const PUSH_FUNCTION = 'push-notifications';
+function pushStatus(message) {
+  const el = document.getElementById('pushNotificationStatus');
+  if (el) el.textContent = message;
+}
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+async function pushApi(action, payload = {}) {
+  const { data: { session }, error } = await supabaseClient.auth.getSession();
+  if (error || !session) throw new Error('ログインが必要です。');
+  const response = await fetch(`${window.SUPABASE_CONFIG.url}/functions/v1/${PUSH_FUNCTION}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}`, 'apikey': window.SUPABASE_CONFIG.anonKey },
+    body: JSON.stringify({ action, ...payload })
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || `通知APIエラー (${response.status})`);
+  return result;
+}
+async function enableWebPush() {
+  try {
+    if (!authUser || (!isSiteModerator && !loggedInStoreId)) throw new Error('管理者・店舗担当者のみ設定できます。');
+    if (!window.isSecureContext || !('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+      throw new Error('このブラウザはWeb Pushに対応していないか、HTTPSではありません。');
+    }
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') throw new Error('ブラウザの通知が許可されていません。');
+    pushStatus('通知端末を登録しています…');
+    const { publicKey } = await pushApi('public-key');
+    const registration = await navigator.serviceWorker.register('./push-sw.js');
+    const ready = await navigator.serviceWorker.ready;
+    let subscription = await ready.pushManager.getSubscription();
+    if (!subscription) subscription = await ready.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) });
+    await pushApi('subscribe', { subscription: subscription.toJSON() });
+    pushStatus('✅ この端末で通知が有効です。ブラウザやOSの設定によっては終了中に受信できない場合があります。');
+  } catch (error) { pushStatus(`⚠️ ${error.message}`); }
+}
+async function disableWebPush() {
+  try {
+    const reg = await navigator.serviceWorker.getRegistration('./push-sw.js');
+    const subscription = await reg?.pushManager.getSubscription();
+    if (subscription) {
+      await pushApi('unsubscribe', { endpoint: subscription.endpoint });
+      await subscription.unsubscribe();
+    }
+    pushStatus('この端末の通知登録を解除しました。');
+  } catch (error) { pushStatus(`⚠️ ${error.message}`); }
+}
+function updatePushControls() {
+  const panel = document.getElementById('pushNotificationPanel');
+  if (!panel) return;
+  const allowed = Boolean(authUser && (isSiteModerator || loggedInStoreId));
+  panel.hidden = !allowed;
+  if (allowed) pushStatus('通知を受け取るには、この端末で「有効にする」を押してください。');
+}
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('enablePushBtn')?.addEventListener('click', enableWebPush);
+  document.getElementById('disablePushBtn')?.addEventListener('click', disableWebPush);
+});
+
 function updateAuthenticatedControls() {
   const moderatorOnlyIds = ['clearDataBtn'];
   moderatorOnlyIds.forEach((id) => {
@@ -611,6 +675,7 @@ function updateAuthenticatedControls() {
   }
   renderStoreManagerPanel();
   renderAdminList();
+  updatePushControls();
 }
 
 async function migrateLegacyRestaurants() {

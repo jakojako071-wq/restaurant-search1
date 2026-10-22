@@ -113,6 +113,15 @@
             </div>
         </div>
 
+        <section id="pushNotificationPanel" class="disaster-test-panel" hidden aria-label="デスクトップ通知設定">
+          <h2>🔔 デスクトップ通知</h2>
+          <p>管理者・店舗担当者専用です。サイトを閉じていても、対応ブラウザでは災害通知を受け取れます。通知を受ける端末ごとに設定してください。</p>
+          <div class="disaster-test-actions">
+            <button type="button" id="enablePushBtn" class="submit-btn">🔔 この端末で通知を有効にする</button>
+            <button type="button" id="disablePushBtn" class="secondary-btn">この端末の通知を解除</button>
+          </div>
+          <p id="pushNotificationStatus" role="status" aria-live="polite">通知設定を確認しています…</p>
+        </section>
         <section id="disasterTestPanel" class="disaster-test-panel" hidden aria-label="災害情報テスト">
           <h2>🧪 災害情報テスト <span class="disaster-test-tag">訓練</span></h2>
           <p>実際の災害ではありません。公開画面にも「訓練」と表示します。実災害データと営業状況は変更しません。</p>
