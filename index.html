@@ -20,7 +20,8 @@
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-    <link rel="stylesheet" href="style-v12.css?v=12-display-repair">
+    <link rel="stylesheet" href="style-v12.css?v=14-mobile-responsive">
+    <link rel="stylesheet" href="mobile-v14.css?v=14.1">
     <!-- 重要な画面表示制御はキャッシュされたCSSに依存させない -->
     <style>
       .page-view { display: none; }
@@ -97,7 +98,7 @@
           <a href="https://www.jma.go.jp/bosai/risk/" target="_blank" rel="noopener noreferrer">気象庁のキキクルで確認</a>
         </div>
         <div class="auto-route-tools" aria-label="雨量・地形を参考にした経路候補">
-          <strong>🌧️ 雨量・標高を参考にした自動車向け経路候補（試験版）</strong>
+          <strong>🌧️ 雨量・標高を参考にした経路候補（試験版）</strong>
           <p>地図上で出発地と目的地を順番に指定し、候補を比較します。雨量・標高の情報だけでは冠水を判断できません。災害時の避難や移動には使用せず、自治体の避難情報・通行規制を優先してください。</p>
           <div class="custom-route-actions">
             <button type="button" id="autoRouteSelectBtn" onclick="autoRouteSelectPoints()">出発地・目的地を指定</button>
