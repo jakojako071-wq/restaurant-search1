@@ -33,3 +33,5 @@ body { overflow-x: hidden; }
   #map { min-height:280px !important; }
 }
 @media (prefers-reduced-motion: reduce) { .auto-route-tools *, .custom-route-tools * { scroll-behavior:auto; } }
+
+.verified-flood-tools{margin:12px 0;padding:12px;border:1px solid #c5a98b;border-radius:10px;background:#fff9f0}.verified-flood-tools input{width:100%;box-sizing:border-box;min-height:42px}.verified-flood-tools button{min-height:44px;margin-top:8px}.verified-flood-tools p{line-height:1.6}

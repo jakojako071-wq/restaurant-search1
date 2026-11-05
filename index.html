@@ -89,43 +89,25 @@
     </section>
 
     <section class="map-section">
-        <div class="flood-tools" aria-label="水害リスク情報">
-          <strong>🌧️ 水害リスク確認</strong>
-          <label class="flood-toggle"><input type="checkbox" id="floodOverlayToggle" onchange="toggleFloodOverlay(this.checked)" checked> 登録した危険区域を地図に表示</label>
-          <label class="flood-file">浸水区域GeoJSONを読み込む <input type="file" id="floodGeojsonFile" accept=".geojson,.json,application/geo+json,application/json" onchange="loadFloodGeojson(event)"></label>
-          <button type="button" onclick="clearFloodGeojson()">区域表示を消す</button>
-          <a href="https://disaportal.gsi.go.jp/" target="_blank" rel="noopener noreferrer">国のハザードマップで確認</a>
-          <a href="https://www.jma.go.jp/bosai/risk/" target="_blank" rel="noopener noreferrer">気象庁のキキクルで確認</a>
+        <div class="flood-tools" aria-label="水害情報">
+          <strong>🌧️ 水害・道路規制情報</strong>
+          <p>降水量・標高はルート計算時に自動取得します。確認済みの道路規制は配信元が設定されている場合に自動更新します。未掲載道路の安全は確認できません。</p>
+          <a href="https://www.jma.go.jp/bosai/risk/" target="_blank" rel="noopener noreferrer">気象庁キキクル</a>
+          <a href="https://www.river.go.jp/" target="_blank" rel="noopener noreferrer">川の防災情報</a>
+          <a href="https://disaportal.gsi.go.jp/" target="_blank" rel="noopener noreferrer">国のハザードマップ</a>
         </div>
         <div class="auto-route-tools" aria-label="雨量・地形を参考にした経路候補">
           <strong>📍 現在地から店舗へのルート（既存の地図に表示）</strong>
           <p>地図上の店舗マーカーをタップすると、現在地を取得して道路候補をこの地図に直接表示します。位置情報の許可が必要です。雨量・標高の情報だけでは冠水を判断できません。災害時の避難や移動には使用せず、自治体の避難情報・通行規制を優先してください。</p>
           <div class="custom-route-actions">
             <button type="button" onclick="autoRouteAllRestaurants()">📍 現在地から各店舗を表示</button>
-            <button type="button" id="autoRouteSelectBtn" onclick="autoRouteSelectPoints()">出発地・目的地を指定</button>
-            <button type="button" id="autoRouteRunBtn" onclick="autoRouteCalculate()">道路候補を比較</button>
-            <button type="button" onclick="autoRouteReset()">指定をクリア</button>
-            <button type="button" onclick="autoRouteOpenGoogle()">Googleマップで経路を開く</button>
+            <button type="button" onclick="autoRouteOpenGoogle()">Googleマップで通常経路を開く</button>
           </div>
           <p id="autoRouteStatus" role="status" aria-live="polite">店舗マーカーをタップすると、現在地からのルート候補を表示します。</p>
-          <div class="verified-flood-tools"><strong>確認済みの冠水・通行止め情報</strong><p>自治体・道路管理者などが公開する、所定のGeoJSON形式の配信URLを指定してください。全国の情報が自動的に揃うわけではありません。</p><label>情報配信URL <input type="url" id="verifiedFloodUrl" placeholder="https://example.jp/road-incidents.geojson" inputmode="url"></label><button type="button" onclick="loadVerifiedFlood()">最新情報を取得</button><p id="verifiedFloodStatus" role="status">確認済みの冠水・通行止めデータは未設定です。安全な経路は判定できません。</p></div><div id="autoRouteStoreList" aria-live="polite"></div>
+          <div class="verified-flood-tools"><strong>冠水・通行止め（確認済み）</strong><p id="verifiedFloodStatus" role="status" aria-live="polite">道路規制情報を確認しています…</p></div><div id="autoRouteStoreList" aria-live="polite"></div>
           <div id="autoRouteResults" aria-live="polite"></div>
           <small>取得元：Open-Meteo（現在の降水量・標高）、OSRM（道路候補）。いずれも公的な冠水・通行可否判定ではありません。実測の冠水・通行止め・避難指示は自動取得しません。外部サービスの利用制限により結果を表示できない場合があります。</small>
         </div>
-        <div class="custom-route-tools" aria-label="自作ルートをGoogleマップに反映">
-          <strong>🗺️ 自作の迂回ルート</strong>
-          <p>「地図でルートを描く」を押し、出発地から目的地まで道路に沿って順番にクリックしてください。最初の点が出発地、最後の点が目的地です。</p>
-          <div class="custom-route-actions">
-            <button type="button" id="routeDrawBtn" onclick="toggleCustomRouteDrawing()">地図でルートを描く</button>
-            <button type="button" onclick="undoCustomRoutePoint()">1点戻す</button>
-            <button type="button" onclick="clearCustomRoute()">ルートを消す</button>
-            <button type="button" onclick="exportCustomRouteKml()">Googleマイマップ用KMLを保存</button>
-            <button type="button" onclick="openCustomRouteInGoogleMaps()">Googleマップで経由地案内</button>
-          </div>
-          <p id="customRouteStatus" role="status" aria-live="polite">ルート未作成。これは手動で指定する参考ルートです。</p>
-          <small>GoogleマイマップにKMLをインポートすると描いた線をそのまま表示できます。通常のGoogleマップ案内では経由地を使って再検索するため、線の形や通行可能性は保証されません。冠水や通行止めが確認された道路は通らず、公的避難情報を優先してください。</small>
-        </div>
-        <p id="floodDataStatus" class="flood-status" role="status" aria-live="polite">浸水区域データ未設定。公式情報を確認してください。</p>
         <div id="map"></div>
         <p class="map-legend">地図の料理アイコンを選ぶと、店舗情報と現在地からのルート候補が表示されます。</p>
     </section>
@@ -427,8 +409,9 @@
 </div>
 
 <script src="script.js"></script>
-<script src="verified-flood-v18.js"></script>
-<script src="auto-flood-route-v19.js"></script>
+<script src="flood-feed-config.js"></script>
+<script src="verified-flood-v20.js"></script>
+<script src="auto-flood-route-v20.js"></script>
 
 </body>
 </html>
