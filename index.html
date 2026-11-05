@@ -79,6 +79,28 @@
     </section>
 
     <section class="map-section">
+        <div class="flood-tools" aria-label="水害リスク情報">
+          <strong>🌧️ 水害リスク確認</strong>
+          <label class="flood-toggle"><input type="checkbox" id="floodOverlayToggle" onchange="toggleFloodOverlay(this.checked)" checked> 登録した危険区域を地図に表示</label>
+          <label class="flood-file">浸水区域GeoJSONを読み込む <input type="file" id="floodGeojsonFile" accept=".geojson,.json,application/geo+json,application/json" onchange="loadFloodGeojson(event)"></label>
+          <button type="button" onclick="clearFloodGeojson()">区域表示を消す</button>
+          <a href="https://disaportal.gsi.go.jp/" target="_blank" rel="noopener noreferrer">国のハザードマップで確認</a>
+          <a href="https://www.jma.go.jp/bosai/risk/" target="_blank" rel="noopener noreferrer">気象庁のキキクルで確認</a>
+        </div>
+        <div class="custom-route-tools" aria-label="自作ルートをGoogleマップに反映">
+          <strong>🗺️ 自作の迂回ルート</strong>
+          <p>「地図でルートを描く」を押し、出発地から目的地まで道路に沿って順番にクリックしてください。最初の点が出発地、最後の点が目的地です。</p>
+          <div class="custom-route-actions">
+            <button type="button" id="routeDrawBtn" onclick="toggleCustomRouteDrawing()">地図でルートを描く</button>
+            <button type="button" onclick="undoCustomRoutePoint()">1点戻す</button>
+            <button type="button" onclick="clearCustomRoute()">ルートを消す</button>
+            <button type="button" onclick="exportCustomRouteKml()">Googleマイマップ用KMLを保存</button>
+            <button type="button" onclick="openCustomRouteInGoogleMaps()">Googleマップで経由地案内</button>
+          </div>
+          <p id="customRouteStatus" role="status" aria-live="polite">ルート未作成。これは手動で指定する参考ルートです。</p>
+          <small>GoogleマイマップにKMLをインポートすると描いた線をそのまま表示できます。通常のGoogleマップ案内では経由地を使って再検索するため、線の形や通行可能性は保証されません。冠水や通行止めが確認された道路は通らず、公的避難情報を優先してください。</small>
+        </div>
+        <p id="floodDataStatus" class="flood-status" role="status" aria-live="polite">浸水区域データ未設定。公式情報を確認してください。</p>
         <div id="map"></div>
         <p class="map-legend">地図の料理アイコンを選ぶと、店舗情報が強調表示されます。</p>
     </section>

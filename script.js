@@ -403,6 +403,7 @@ function normalizeRestaurantRow(row) {
     tags: row.tags,
     address: row.address,
     emergencyClosed: row.emergency_closed,
+    closedTodayDate: row.closed_today_date || null,
     openingTime: row.opening_time,
     closingTime: row.closing_time,
     phone: row.phone,
@@ -841,8 +842,17 @@ function updateRestaurantRatingFromReviews(restaurant) {
     : 0;
 }
 
+// Today's date in the service's Japanese operating calendar (not UTC).
+function japaneseDateKey(now = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+}
+
+function isClosedToday(restaurant, now = new Date()) {
+  return Boolean(restaurant.closedTodayDate && restaurant.closedTodayDate === japaneseDateKey(now));
+}
+
 function isCurrentlyOpen(restaurant, now = new Date()) {
-  if (restaurant.emergencyClosed || isDisasterConfirming(restaurant)) return false;
+  if (restaurant.emergencyClosed || isClosedToday(restaurant, now) || isDisasterConfirming(restaurant)) return false;
   const { openingTime, closingTime } = restaurant;
   if (!openingTime || !closingTime) return false;
 
@@ -876,7 +886,7 @@ function renderRestaurantCards(items) {
     const statusText = disasterConfirming
       ? '⚠️ 災害発生のため不明'
       : drill ? '🧪 【訓練】災害発生のため不明（実際の災害ではありません）'
-      : restaurant.emergencyClosed ? '🚨 緊急臨時休業中' : openNow ? '🟢 営業中' : '🔴 営業時間外';
+      : isClosedToday(restaurant) ? '🔴 本日休業' : restaurant.emergencyClosed ? '🚨 緊急臨時休業中' : openNow ? '🟢 営業中' : '🔴 営業時間外';
     const primaryImage = getRestaurantImages(restaurant)[0];
     return `
     <article class="restaurant-card ${disasterConfirming || drill ? 'restaurant-card-disaster' : openNow ? 'restaurant-card-open' : 'restaurant-card-closed'}" data-id="${escapeHtml(restaurant.id)}">
@@ -1039,12 +1049,14 @@ function renderAdminList() {
             ${restaurant.approved ? '' : '<div class="approval-pending">⏳ 承認待ち</div>'}
             ${disasterConfirming ? '<div class="disaster-confirming-label">⚠️ 災害発生のため不明</div>' : ''}
             ${restaurant.approved && restaurant.emergencyClosed ? '<div class="store-status-emergency">🚨 臨時休業中</div>' : ''}
+            ${restaurant.approved && isClosedToday(restaurant) ? '<div class="store-status-emergency">📅 本日休業</div>' : ''}
           </div>
           <div class="admin-actions">
             ${restaurant.approved ? '' : `<button type="button" class="submit-btn" data-action="admin-approve" data-id="${escapeHtml(restaurant.id)}">承認して公開</button>`}
             <button type="button" class="secondary-btn" data-action="admin-edit" data-id="${escapeHtml(restaurant.id)}">編集</button>
             ${disasterConfirming ? `<button type="button" class="resume-business-btn" data-action="acknowledge-disaster" data-id="${escapeHtml(restaurant.id)}" ${storeStatusSaveInProgress ? 'disabled' : ''}>営業を再開</button>` : ''}
             ${restaurant.approved && !disasterConfirming ? `<button type="button" class="secondary-btn" data-action="admin-toggle-emergency-closure" data-id="${escapeHtml(restaurant.id)}" ${storeStatusSaveInProgress ? 'disabled' : ''}>${restaurant.emergencyClosed ? '営業を再開' : '臨時休業にする'}</button>` : ''}
+            ${restaurant.approved ? `<button type="button" class="secondary-btn" data-action="admin-close-today" data-id="${escapeHtml(restaurant.id)}" ${storeStatusSaveInProgress ? 'disabled' : ''}>${isClosedToday(restaurant) ? '本日休業を取り消す' : '本日は休業'}</button>` : ''}
             ${restaurant.approved ? `<button type="button" class="secondary-btn" data-action="admin-emergency-qr" data-id="${escapeHtml(restaurant.id)}">臨時休業QR</button>` : ''}
             <button type="button" class="danger-btn" data-action="admin-delete" data-id="${escapeHtml(restaurant.id)}">${restaurant.approved ? '削除' : '却下・削除'}</button>
           </div>
@@ -1092,13 +1104,13 @@ function renderStoreManagerPanel() {
   const disasterConfirming = isDisasterConfirming(restaurant);
   const statusText = disasterConfirming
     ? '災害発生のため不明'
-    : restaurant.emergencyClosed ? '臨時休業中'
+    : isClosedToday(restaurant) ? '本日休業' : restaurant.emergencyClosed ? '臨時休業中'
     : openNow ? '営業中' : '営業時間外';
   panel.innerHTML = `
     <p class="store-dashboard-kicker">店舗運営者専用管理画面</p>
     <h2>${escapeHtml(restaurant.name)} の店舗管理</h2>
     <div class="store-dashboard-summary">
-      <p><strong>現在の状態</strong><span class="${disasterConfirming ? 'store-status-disaster' : restaurant.emergencyClosed ? 'store-status-emergency' : openNow ? 'store-status-open' : 'store-status-closed'}">${disasterConfirming ? '⚠️ ' : restaurant.emergencyClosed ? '🚨 ' : openNow ? '🟢 ' : '🔴 '}${statusText}</span></p>
+      <p><strong>現在の状態</strong><span class="${disasterConfirming ? 'store-status-disaster' : (restaurant.emergencyClosed || isClosedToday(restaurant)) ? 'store-status-emergency' : openNow ? 'store-status-open' : 'store-status-closed'}">${disasterConfirming ? '⚠️ ' : isClosedToday(restaurant) ? '🔴 ' : restaurant.emergencyClosed ? '🚨 ' : openNow ? '🟢 ' : '🔴 '}${statusText}</span></p>
       <p><strong>営業時間</strong><span>${escapeHtml(restaurant.openingTime || '未登録')}〜${escapeHtml(restaurant.closingTime || '未登録')}</span></p>
       <p><strong>住所</strong><span>${escapeHtml(restaurant.address || '未登録')}</span></p>
     </div>
@@ -1109,6 +1121,7 @@ function renderStoreManagerPanel() {
       : '緊急時は臨時休業に切り替えてください。営業再開時は「営業を再開する」を押してください。'}</p>
     <div class="store-manager-actions">
       <button type="button" class="edit-own-store-btn" data-action="edit-own-store">✏️ 店舗情報を編集</button>
+      <button type="button" class="secondary-btn" data-action="close-today" ${storeStatusSaveInProgress ? 'disabled' : ''}>${isClosedToday(restaurant) ? '↩️ 本日休業を取り消す' : '📅 本日は休業にする'}</button>
       <button type="button" class="qr-button" data-action="emergency-qr" data-id="${escapeHtml(restaurant.id)}">📱 臨時休業QRを作成</button>
     </div>
     <button type="button" class="${disasterConfirming || restaurant.emergencyClosed ? 'resume-business-btn' : 'emergency-close-btn'}" data-action="${disasterConfirming ? 'acknowledge-disaster' : 'toggle-emergency-closure'}" ${storeStatusSaveInProgress ? 'disabled' : ''}>
@@ -1143,6 +1156,30 @@ function getAppUrl(value = '') {
   url.search = '';
   url.hash = '';
   return url;
+}
+
+async function toggleClosedToday(restaurantId = loggedInStoreId) {
+  if (storeStatusSaveInProgress || !supabaseClient) return;
+  const restaurant = restaurants.find(item => item.id === restaurantId);
+  if (!restaurant || (!isSiteModerator && restaurant.id !== loggedInStoreId)) return;
+  const closing = !isClosedToday(restaurant);
+  if (!confirm(closing ? '本日だけ休業にしますか？翌日（日本時間0時）から通常の営業時間判定に戻ります。' : '本日休業を取り消しますか？')) return;
+  storeStatusSaveInProgress = true;
+  renderStoreManagerPanel(); renderAdminList();
+  try {
+    const { data, error } = await supabaseClient.from('restaurants')
+      .update({ closed_today_date: closing ? japaneseDateKey() : null })
+      .eq('id', restaurantId).select('id').single();
+    if (error) throw error;
+    if (!data) throw new Error('店舗を更新できませんでした');
+    await loadRestaurants();
+  } catch (error) {
+    handleCloudError(error);
+    alert('本日休業の設定を保存できませんでした。V9_SETUP.sqlが実行済みか確認してください。');
+  } finally {
+    storeStatusSaveInProgress = false;
+    renderStoreManagerPanel(); renderAdminList();
+  }
 }
 
 async function toggleEmergencyClosure(restaurantId = loggedInStoreId) {
@@ -2407,6 +2444,7 @@ function normalizeRestaurantRecord(record) {
     ownerId: record.ownerId || null,
     approved: record.approved !== false,
     emergencyClosed: Boolean(record.emergencyClosed),
+    closedTodayDate: record.closedTodayDate || null,
     openingTime: record.openingTime || '',
     closingTime: record.closingTime || '',
     phone: record.phone || '未登録',
@@ -2709,6 +2747,7 @@ function bindEvents() {
     if (!button) return;
 
     if (button.dataset.action === 'toggle-emergency-closure') toggleEmergencyClosure();
+    if (button.dataset.action === 'close-today') toggleClosedToday();
     if (button.dataset.action === 'acknowledge-disaster') acknowledgeDisasterAndResume();
     if (button.dataset.action === 'edit-own-store' && loggedInStoreId) editStore(loggedInStoreId);
     if (button.dataset.action === 'emergency-qr' && button.dataset.id) openEmergencyClosureQr(button.dataset.id);
@@ -2730,6 +2769,7 @@ function bindEvents() {
     if (action === 'admin-approve') approveStore(id);
     if (action === 'admin-edit') editStore(id);
     if (action === 'admin-toggle-emergency-closure') toggleEmergencyClosure(id);
+    if (action === 'admin-close-today') toggleClosedToday(id);
     if (action === 'acknowledge-disaster') acknowledgeDisasterAndResume(id);
     if (action === 'admin-emergency-qr') openEmergencyClosureQr(id);
     if (action === 'admin-delete') deleteStore(id);
@@ -2819,3 +2859,141 @@ function initializeApp() {
 }
 
 document.addEventListener('DOMContentLoaded', initializeApp);
+
+
+// v10: optional flood-risk GeoJSON overlay. Data is supplied by the user and is NOT a live flood forecast.
+let floodGeojsonLayer = null;
+let floodGeojsonData = null;
+function setFloodStatus(message) {
+  const node = document.getElementById('floodDataStatus');
+  if (node) node.textContent = message;
+}
+function isFloodPolygonGeometry(geometry) {
+  return geometry && (geometry.type === 'Polygon' || geometry.type === 'MultiPolygon');
+}
+function validateFloodGeojson(data) {
+  if (!data || typeof data !== 'object') throw new Error('GeoJSON形式ではありません。');
+  const features = data.type === 'FeatureCollection' ? data.features : data.type === 'Feature' ? [data] : [];
+  if (!Array.isArray(features) || !features.length || features.length > 3000) throw new Error('1〜3000件のFeatureを含むGeoJSONを選択してください。');
+  if (!features.every(f => f && f.type === 'Feature' && isFloodPolygonGeometry(f.geometry))) throw new Error('Polygon/MultiPolygonのみ対応しています。');
+  return {type:'FeatureCollection', features};
+}
+function drawFloodOverlay() {
+  if (floodGeojsonLayer && map) map.removeLayer(floodGeojsonLayer);
+  floodGeojsonLayer = null;
+  if (!map || !floodGeojsonData || !document.getElementById('floodOverlayToggle')?.checked) return;
+  floodGeojsonLayer = L.geoJSON(floodGeojsonData, {
+    style: {color:'#c6532f',weight:2,fillColor:'#ed995b',fillOpacity:.32},
+    onEachFeature: (_, layer) => layer.bindPopup('浸水リスク参考区域（利用者が読み込んだデータ）')
+  }).addTo(map);
+}
+function toggleFloodOverlay() { drawFloodOverlay(); }
+async function loadFloodGeojson(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) { setFloodStatus('ファイルは5MB以下にしてください。'); return; }
+  try {
+    const data = validateFloodGeojson(JSON.parse(await file.text()));
+    // Validate that coordinates can be parsed before replacing the active layer.
+    const preview = L.geoJSON(data);
+    if (!preview.getBounds().isValid()) throw new Error('位置座標が正しくありません。');
+    floodGeojsonData = data;
+    drawFloodOverlay();
+    map?.fitBounds(preview.getBounds(), {padding:[20,20],maxZoom:14});
+    setFloodStatus(`${data.features.length}件の参考区域を表示中。読み込んだ区域は公式の最新情報とは限りません。ページ再読込で消えます。`);
+  } catch (error) {
+    setFloodStatus(`読み込み失敗: ${error.message}`);
+  }
+}
+function clearFloodGeojson() {
+  floodGeojsonData = null;
+  if (floodGeojsonLayer && map) map.removeLayer(floodGeojsonLayer);
+  floodGeojsonLayer = null;
+  const input = document.getElementById('floodGeojsonFile');
+  if (input) input.value = '';
+  setFloodStatus('浸水区域データ未設定。公式情報を確認してください。');
+}
+function focusFloodRiskForRestaurant(id) {
+  const restaurant = restaurants.find(r => String(r.id) === String(id));
+  if (!restaurant || !map || !hasValidRestaurantLocation(restaurant)) return;
+  const detail = document.getElementById('restaurantDetailModal');
+  if (detail) detail.classList.remove('show');
+  map.setView([Number(restaurant.lat),Number(restaurant.lng)],14);
+  document.querySelector('.map-section')?.scrollIntoView({behavior:'smooth'});
+  setFloodStatus(floodGeojsonData ? 'オレンジ色の区域は読み込んだ参考データです。最新の公式情報も確認してください。' : '危険区域データが未設定です。国のハザードマップと気象庁キキクルを確認してください。');
+}
+
+
+// v11: Manually specified reference route. No automatic flood-avoidance claim.
+let customRouteDrawing = false;
+let customRoutePoints = [];
+let customRouteLayer = null;
+let customRouteMarkers = null;
+let customRouteBoundMap = null;
+function customRouteStatus(message) {
+  const el = document.getElementById('customRouteStatus');
+  if (el) el.textContent = message;
+}
+function syncCustomRouteMap() {
+  if (!map || customRouteBoundMap === map) return;
+  customRouteBoundMap = map;
+  map.on('click', event => {
+    if (!customRouteDrawing) return;
+    const {lat,lng} = event.latlng;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    if (customRoutePoints.length >= 150) { customRouteStatus('最大150点まで指定できます。'); return; }
+    customRoutePoints.push([lat,lng]);
+    drawCustomRoute();
+  });
+  drawCustomRoute();
+}
+function drawCustomRoute() {
+  if (!map || typeof L === 'undefined') return;
+  if (customRouteLayer) map.removeLayer(customRouteLayer);
+  if (customRouteMarkers) map.removeLayer(customRouteMarkers);
+  customRouteLayer = null;
+  customRouteMarkers = L.layerGroup().addTo(map);
+  customRoutePoints.forEach((point,i) => {
+    if (i === 0 || i === customRoutePoints.length-1) {
+      L.circleMarker(point,{radius:7,color:'#fff',weight:2,fillColor:i===0?'#2478d0':'#1c8c64',fillOpacity:1})
+        .bindPopup(i===0?'出発地':'目的地').addTo(customRouteMarkers);
+    }
+  });
+  if (customRoutePoints.length > 1) customRouteLayer = L.polyline(customRoutePoints,{color:'#2478d0',weight:6,opacity:.85}).addTo(map);
+  customRouteStatus(`${customRoutePoints.length}点を指定済み。${customRouteDrawing?'地図をクリックして追加できます。':'編集を終了しました。'} 道路や災害情報との照合は行っていません。`);
+}
+function toggleCustomRouteDrawing() {
+  if (!map) { customRouteStatus('地図の読み込みが完了してからお試しください。'); return; }
+  syncCustomRouteMap();
+  customRouteDrawing = !customRouteDrawing;
+  const btn = document.getElementById('routeDrawBtn');
+  if (btn) btn.textContent = customRouteDrawing?'描画を終了':'地図でルートを描く';
+  drawCustomRoute();
+}
+function undoCustomRoutePoint() { customRoutePoints.pop(); syncCustomRouteMap(); drawCustomRoute(); }
+function clearCustomRoute() { customRoutePoints=[]; syncCustomRouteMap(); drawCustomRoute(); }
+function escapeXmlRoute(s) { return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c])); }
+function exportCustomRouteKml() {
+  if (customRoutePoints.length < 2) { customRouteStatus('出発地と目的地を含む2点以上を指定してください。'); return; }
+  const coords=customRoutePoints.map(([lat,lng])=>`${lng.toFixed(7)},${lat.toFixed(7)},0`).join(' ');
+  const kml=`<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>水害時の参考迂回ルート</name><description>${escapeXmlRoute('手動指定の参考線です。通行の安全性を保証しません。')}</description><Style id="route"><LineStyle><color>ffff7824</color><width>5</width></LineStyle></Style><Placemark><name>自作の迂回ルート</name><styleUrl>#route</styleUrl><LineString><tessellate>1</tessellate><coordinates>${coords}</coordinates></LineString></Placemark></Document></kml>`;
+  const url=URL.createObjectURL(new Blob([kml],{type:'application/vnd.google-earth.kml+xml;charset=utf-8'}));
+  const a=document.createElement('a');a.href=url;a.download='custom_flood_detour.kml';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  customRouteStatus('KMLを保存しました。Googleマイマップ（mymaps.google.com）で「インポート」してください。');
+}
+function openCustomRouteInGoogleMaps() {
+  if (customRoutePoints.length < 2) { customRouteStatus('2点以上指定してください。'); return; }
+  const point=([lat,lng])=>`${lat.toFixed(6)},${lng.toFixed(6)}`;
+  const origin=point(customRoutePoints[0]);
+  const destination=point(customRoutePoints[customRoutePoints.length-1]);
+  const inner=customRoutePoints.slice(1,-1);
+  // Google Maps URLs accept a limited number of waypoints, especially on mobile.
+  const maxWaypoints=3;
+  const sampled=inner.length<=maxWaypoints?inner:Array.from({length:maxWaypoints},(_,i)=>inner[Math.floor((i+1)*inner.length/(maxWaypoints+1))]);
+  const params=new URLSearchParams({api:'1',origin,destination,travelmode:'walking'});
+  if (sampled.length) params.set('waypoints',sampled.map(point).join('|'));
+  window.open(`https://www.google.com/maps/dir/?${params.toString()}`,'_blank','noopener,noreferrer');
+  customRouteStatus('Googleマップの経由地案内を開きました。Google側で経路が再計算されるため、描画した線と一致するとは限りません。');
+}
+// The map is created asynchronously in the existing application.
+const customRouteMapWatcher = setInterval(() => { if (typeof map !== 'undefined' && map) { syncCustomRouteMap(); clearInterval(customRouteMapWatcher); } }, 500);
