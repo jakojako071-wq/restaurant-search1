@@ -98,8 +98,8 @@
           <a href="https://www.jma.go.jp/bosai/risk/" target="_blank" rel="noopener noreferrer">気象庁のキキクルで確認</a>
         </div>
         <div class="auto-route-tools" aria-label="雨量・地形を参考にした経路候補">
-          <strong>🌧️ 雨量・標高と道路候補の自動比較</strong>
-          <p>全国の地図上で出発地と目的地を指定し、道路候補を比較します。雨量・標高の情報だけでは冠水を判断できません。災害時の避難や移動には使用せず、自治体の避難情報・通行規制を優先してください。</p>
+          <strong>📍 現在地から店舗へのルート（既存の地図に表示）</strong>
+          <p>地図上の店舗マーカーをタップすると、現在地を取得して道路候補をこの地図に直接表示します。位置情報の許可が必要です。雨量・標高の情報だけでは冠水を判断できません。災害時の避難や移動には使用せず、自治体の避難情報・通行規制を優先してください。</p>
           <div class="custom-route-actions">
             <button type="button" onclick="autoRouteAllRestaurants()">📍 現在地から各店舗を表示</button>
             <button type="button" id="autoRouteSelectBtn" onclick="autoRouteSelectPoints()">出発地・目的地を指定</button>
@@ -107,8 +107,8 @@
             <button type="button" onclick="autoRouteReset()">指定をクリア</button>
             <button type="button" onclick="autoRouteOpenGoogle()">Googleマップで経路を開く</button>
           </div>
-          <p id="autoRouteStatus" role="status" aria-live="polite">未指定。地図で出発地と目的地を選択してください。</p>
-          <div id="autoRouteStoreList" aria-live="polite"></div>
+          <p id="autoRouteStatus" role="status" aria-live="polite">店舗マーカーをタップすると、現在地からのルート候補を表示します。</p>
+          <div class="verified-flood-tools"><strong>確認済みの冠水・通行止め情報</strong><p>自治体・道路管理者などが公開する、所定のGeoJSON形式の配信URLを指定してください。全国の情報が自動的に揃うわけではありません。</p><label>情報配信URL <input type="url" id="verifiedFloodUrl" placeholder="https://example.jp/road-incidents.geojson" inputmode="url"></label><button type="button" onclick="loadVerifiedFlood()">最新情報を取得</button><p id="verifiedFloodStatus" role="status">確認済みの冠水・通行止めデータは未設定です。安全な経路は判定できません。</p></div><div id="autoRouteStoreList" aria-live="polite"></div>
           <div id="autoRouteResults" aria-live="polite"></div>
           <small>取得元：Open-Meteo（現在の降水量・標高）、OSRM（道路候補）。いずれも公的な冠水・通行可否判定ではありません。実測の冠水・通行止め・避難指示は自動取得しません。外部サービスの利用制限により結果を表示できない場合があります。</small>
         </div>
@@ -127,7 +127,7 @@
         </div>
         <p id="floodDataStatus" class="flood-status" role="status" aria-live="polite">浸水区域データ未設定。公式情報を確認してください。</p>
         <div id="map"></div>
-        <p class="map-legend">地図の料理アイコンを選ぶと、店舗情報が強調表示されます。</p>
+        <p class="map-legend">地図の料理アイコンを選ぶと、店舗情報と現在地からのルート候補が表示されます。</p>
     </section>
 
     <section class="restaurant-section">
@@ -427,7 +427,8 @@
 </div>
 
 <script src="script.js"></script>
-<script src="auto-flood-route-v17.js"></script>
+<script src="verified-flood-v18.js"></script>
+<script src="auto-flood-route-v19.js"></script>
 
 </body>
 </html>

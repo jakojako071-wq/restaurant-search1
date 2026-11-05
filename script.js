@@ -1407,7 +1407,7 @@ function renderMapMarkers() {
       alt: `${restaurant.category || '飲食店'}の店舗`
     }).addTo(map);
     marker.bindPopup(`<strong>${escapeHtml(restaurant.name)}</strong><br>${escapeHtml(restaurant.address || '')}`);
-    marker.on('click', () => selectRestaurant(restaurant.id, true));
+    marker.on('click', () => { selectRestaurant(restaurant.id, true); if (typeof window.autoRouteSelectStoreOnMap === 'function') window.autoRouteSelectStoreOnMap(restaurant.id); });
     markers.push({ id: restaurant.id, marker });
   });
 }
