@@ -20,7 +20,16 @@
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-    <link rel="stylesheet" href="style.css?v=11-1">
+    <link rel="stylesheet" href="style-v12.css?v=12-display-repair">
+    <!-- 重要な画面表示制御はキャッシュされたCSSに依存させない -->
+    <style>
+      .page-view { display: none; }
+      .page-view.active { display: block; }
+      #map { height: 320px; min-height: 320px; width: 100%; position: relative; }
+      #modalMap { min-height: 240px; }
+      .modal:not(.show) { display: none; }
+    </style>
+
     <script src="supabase-config.js"></script>
 </head>
 
@@ -86,6 +95,19 @@
           <button type="button" onclick="clearFloodGeojson()">区域表示を消す</button>
           <a href="https://disaportal.gsi.go.jp/" target="_blank" rel="noopener noreferrer">国のハザードマップで確認</a>
           <a href="https://www.jma.go.jp/bosai/risk/" target="_blank" rel="noopener noreferrer">気象庁のキキクルで確認</a>
+        </div>
+        <div class="auto-route-tools" aria-label="雨量・地形を参考にした経路候補">
+          <strong>🌧️ 雨量・標高を参考にした自動車向け経路候補（試験版）</strong>
+          <p>地図上で出発地と目的地を順番に指定し、候補を比較します。雨量・標高の情報だけでは冠水を判断できません。災害時の避難や移動には使用せず、自治体の避難情報・通行規制を優先してください。</p>
+          <div class="custom-route-actions">
+            <button type="button" id="autoRouteSelectBtn" onclick="autoRouteSelectPoints()">出発地・目的地を指定</button>
+            <button type="button" id="autoRouteRunBtn" onclick="autoRouteCalculate()">経路候補を比較</button>
+            <button type="button" onclick="autoRouteReset()">指定をクリア</button>
+            <button type="button" onclick="autoRouteOpenGoogle()">Googleマップで経路を開く</button>
+          </div>
+          <p id="autoRouteStatus" role="status" aria-live="polite">未指定。地図で出発地と目的地を選択してください。</p>
+          <div id="autoRouteResults" aria-live="polite"></div>
+          <small>取得元：Open-Meteo（現在の降水量・標高）、OSRM（道路候補）。実測の冠水・通行止め・避難指示は自動取得しません。外部サービスの利用制限により結果を表示できない場合があります。</small>
         </div>
         <div class="custom-route-tools" aria-label="自作ルートをGoogleマップに反映">
           <strong>🗺️ 自作の迂回ルート</strong>
@@ -402,6 +424,7 @@
 </div>
 
 <script src="script.js"></script>
+<script src="auto-flood-route-v13.js"></script>
 
 </body>
 </html>
