@@ -1,0 +1,35 @@
+/* v15: only new flood and routing controls; v9 original style.css remains primary. */
+html { -webkit-text-size-adjust: 100%; }
+body { overflow-x: hidden; }
+#userPage, #adminPage, .map-section, .admin-container { min-width: 0; }
+.auto-route-tools, .custom-route-tools, .flood-tools { box-sizing: border-box; max-width: 100%; overflow-wrap: anywhere; }
+.auto-route-tools small { display:block; color:#52647a; line-height:1.55; }
+.auto-route-result { overflow-wrap: anywhere; }
+.auto-route-tools button, .custom-route-actions button { touch-action: manipulation; }
+@media (max-width: 700px) {
+  /* Keep original v9 header and navigation appearance unchanged. */
+  .flood-tools { display:flex; flex-direction:column; align-items:stretch; gap:10px; padding:12px; }
+  .flood-tools > *, .flood-file, .flood-file input { max-width:100%; min-width:0; box-sizing:border-box; }
+  .flood-file input { display:block; margin-top:8px; width:100%; }
+  .flood-tools button, .flood-tools a { min-height:44px; padding:11px; }
+  .auto-route-tools, .custom-route-tools { padding:12px; margin:12px 0; font-size:14px; }
+  .auto-route-tools p, .custom-route-tools p { font-size:14px; }
+  .auto-route-tools .custom-route-actions, .custom-route-tools .custom-route-actions { display:grid; grid-template-columns:minmax(0,1fr); gap:9px; }
+  .auto-route-tools .custom-route-actions button, .custom-route-tools .custom-route-actions button { width:100%; min-height:46px; margin:0; white-space:normal; text-align:center; line-height:1.35; }
+  #autoRouteResults { display:grid; grid-template-columns:minmax(0,1fr); gap:8px; }
+  .auto-route-result { margin:0; padding:12px; }
+  .auto-route-result button { min-height:44px; margin:10px 0 0; width:100%; }
+  #map { height: min(58vh, 470px) !important; min-height: 300px !important; width:100%; }
+  #modalMap { min-height:260px; }
+  .leaflet-container { max-width:100%; }
+  .leaflet-control-zoom a { width:36px; height:36px; line-height:36px; }
+  .admin-actions, .admin-header-actions { display:flex; flex-wrap:wrap; gap:8px; }
+  .admin-actions button, .admin-header-actions button { min-height:44px; flex:1 1 130px; }
+  input, select, textarea { max-width:100%; box-sizing:border-box; font-size:16px; }
+  .modal, .modal-content { max-width:100%; box-sizing:border-box; }
+}
+@media (max-width: 370px) {
+  .auto-route-tools, .custom-route-tools { padding:10px; }
+  #map { min-height:280px !important; }
+}
+@media (prefers-reduced-motion: reduce) { .auto-route-tools *, .custom-route-tools * { scroll-behavior:auto; } }

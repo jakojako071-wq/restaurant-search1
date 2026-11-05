@@ -2015,21 +2015,3 @@ textarea:focus-visible {
 .disaster-test-preview { padding: 15px; border-radius: 10px; border: 1px dashed #d97706; background: #fff; }
 .disaster-test-preview.active { background: #fef3c7; border: 2px solid #d97706; }
 .disaster-test-preview p { margin: 8px 0; }
-
-/* v10 flood-risk viewer */
-.flood-tools{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:10px 0;padding:12px;background:#f2f7f8;border:1px solid #d3e4e6;border-radius:12px;font-size:14px}
-.flood-tools a,.flood-detail-warning a{color:#075a8c;text-decoration:underline}
-.flood-tools button,.flood-detail-warning button{border:1px solid #9ab5c0;background:white;border-radius:8px;padding:8px;cursor:pointer}
-.flood-file{border:1px solid #9ab5c0;border-radius:8px;padding:8px;background:white;cursor:pointer}
-.flood-file input{max-width:190px;font-size:12px}
-.flood-status{font-size:13px;color:#74502c;margin:8px 0}
-.flood-detail-warning{margin:12px 0;padding:12px;background:#fff5e9;border:1px solid #ebcba6;border-radius:10px}
-.flood-detail-warning p{margin:8px 0}
-.flood-detail-warning a{display:inline-block;margin:8px}
-
-/* v11 custom route tools */
-.custom-route-tools{margin:12px 0;padding:14px;border:1px solid #bad3e9;border-radius:12px;background:#f1f7ff;font-size:14px}
-.custom-route-tools p{margin:8px 0}.custom-route-tools small{display:block;line-height:1.6;color:#52647a}
-.custom-route-actions{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
-.custom-route-actions button{border:1px solid #8aabc9;background:#fff;border-radius:8px;padding:9px 11px;cursor:pointer}
-#customRouteStatus{font-weight:600;color:#22517a}
