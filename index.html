@@ -32,6 +32,7 @@
     </style>
 
     <script src="supabase-config.js"></script>
+<link rel="stylesheet" href="map-visibility-v22.css">
 </head>
 
 <body>
@@ -89,6 +90,15 @@
     </section>
 
     <section class="map-section">
+        <div class="map-layer-controls" aria-label="地図の表示切り替え">
+          <strong>🗺️ 地図・ルートの表示設定</strong>
+          <div class="map-layer-switches">
+            <label><input type="checkbox" id="v22RouteVisible" checked> 道路ルートを表示</label>
+            <label><input type="checkbox" id="v22IncidentVisible" checked> 確認済み冠水・通行止めを表示</label>
+            <label><input type="checkbox" id="v22RiskVisible" checked> 雨量・標高のリスク評価を表示</label>
+          </div>
+          <small>表示のオン・オフのみ変更します。ルートの危険判定や通行止め除外はオフにしても継続します。</small>
+        </div>
         <div class="flood-tools" aria-label="水害情報">
           <strong>🌧️ 水害・道路規制情報</strong>
           <p>降水量・標高はルート計算時に自動取得します。確認済みの道路規制は配信元が設定されている場合に自動更新します。未掲載道路の安全は確認できません。</p>
@@ -410,8 +420,9 @@
 
 <script src="script.js"></script>
 <script src="flood-feed-config.js"></script>
-<script src="verified-flood-v20.js"></script>
-<script src="auto-flood-route-v21.js"></script>
+<script src="verified-flood-v22.js"></script>
+<script src="auto-flood-route-v22.js"></script>
+<script src="map-visibility-v22.js"></script>
 
 </body>
 </html>

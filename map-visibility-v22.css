@@ -1,0 +1,6 @@
+.map-layer-controls{margin:10px 0;padding:12px;border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc;color:#25354a}
+.map-layer-switches{display:flex;flex-wrap:wrap;gap:10px 18px;margin:10px 0}
+.map-layer-switches label{display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:14px}
+.map-layer-switches input{width:17px;height:17px;accent-color:#2563a8}
+.map-layer-controls small{display:block;font-size:12px;line-height:1.5}
+.v22-hide-risk .v22-risk-details{display:none}
